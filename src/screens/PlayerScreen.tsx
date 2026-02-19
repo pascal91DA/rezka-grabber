@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View,} from 'react-native';
-import {AVPlaybackStatus, ResizeMode, Video} from 'expo-av';
+import {ActivityIndicator, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View} from 'react-native';
+import Video, {OnProgressData, VideoRef} from 'react-native-video';
 import {Movie} from '../types/Movie';
 import {ResumeParams} from '../types/navigation';
 import {Episode, MovieData, RezkaService, Season, Translation} from '../services/rezkaService';
@@ -33,7 +33,9 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Ref для видеоплеера
-  const videoRef = useRef<Video>(null);
+  const videoRef = useRef<VideoRef>(null);
+  // Флаг что был в fullscreen перед переключением серии
+  const wasInFullscreen = useRef(false);
   // Ref для отслеживания, что мы уже обрабатываем переход к следующей серии
   const isLoadingNextEpisode = useRef(false);
   // Ref для отслеживания, что идёт первоначальная загрузка с resume
@@ -48,6 +50,12 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   // Счётчик retry при ошибке воспроизведения
   const retryCount = useRef(0);
   const maxRetries = 3;
+  // Флаг что видео загружено
+  const videoLoaded = useRef(false);
+  // Флаг что переключаем серию
+  const switchingEpisode = useRef(false);
+  // Длительность видео
+  const videoDuration = useRef(0);
 
   useEffect(() => {
     activateKeepAwakeAsync().then(r => console.log("activateKeepAwakeAsync", r));
@@ -66,7 +74,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     (episode) => !selectedSeason || episode.seasonId === selectedSeason.id
   ) || [];
 
-  // Получаем следующую серию (в рамках текущего сезона или следующего)
+  // Получаем следующую серию
   const getNextEpisode = useCallback((): { episode: Episode; season?: Season } | null => {
     if (!movieData?.episodes || !selectedEpisode) return null;
 
@@ -99,7 +107,6 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
     if (preloadedNextEpisode.current?.episode.id === next.episode.id &&
       preloadedNextEpisode.current?.episode.seasonId === next.episode.seasonId) {
-      console.log('[Preload] Already preloaded:', next.episode.title);
       return;
     }
 
@@ -121,24 +128,34 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         quality: result.quality,
       };
 
-      console.log('[Preload] Preloaded successfully:', next.episode.title, result.quality);
-
+      console.log('[Preload] Preloaded successfully:', next.episode.title);
     } catch (err) {
-      console.error('[Preload] Failed to preload:', err);
+      console.error('[Preload] Failed:', err);
       preloadedNextEpisode.current = null;
     }
   }, [getNextEpisode, movie.url, selectedTranslation?.id, selectedSeason?.id]);
 
-  // Загружаем и воспроизводим следующую серию
-  const playNextEpisode = useCallback(() => {
-    if (isLoadingNextEpisode.current || loadingVideo) return;
+  // Переключение на следующую серию
+  const playNextEpisode = useCallback(async () => {
+    if (isLoadingNextEpisode.current || loadingVideo || switchingEpisode.current) return;
 
     const next = getNextEpisode();
-    if (!next) {
-      return;
+    if (!next) return;
+
+    switchingEpisode.current = true;
+    isLoadingNextEpisode.current = true;
+
+    console.log('[playNextEpisode] isFullscreen:', isFullscreen);
+
+    // Выходим из fullscreen
+    if (isFullscreen && videoRef.current) {
+      wasInFullscreen.current = true;
+      console.log('[playNextEpisode] Dismissing fullscreen');
+      videoRef.current.dismissFullscreenPlayer();
     }
 
-    isLoadingNextEpisode.current = true;
+    // Задержка для выхода из fullscreen
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     const preloaded = preloadedNextEpisode.current;
     const hasPreloaded = preloaded &&
@@ -146,15 +163,13 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       preloaded.episode.seasonId === next.episode.seasonId;
 
     if (hasPreloaded) {
-      console.log('[playNextEpisode] Using preloaded URL for:', next.episode.title);
+      console.log('[playNextEpisode] Using preloaded URL');
 
-      if (next.season) {
-        setSelectedSeason(next.season);
-      }
+      if (next.season) setSelectedSeason(next.season);
       setSelectedEpisode(next.episode);
       setVideoUrl(preloaded.url);
       setVideoQuality(preloaded.quality);
-      setPaused(false);
+      videoLoaded.current = false;
 
       HistoryService.saveLastWatch({
         movie,
@@ -167,27 +182,16 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       });
 
       preloadedNextEpisode.current = null;
-      // Сбрасываем флаг после того, как React обработает изменения состояния
-      setTimeout(() => {
-        isLoadingNextEpisode.current = false;
-      }, 100);
+    } else {
+      console.log('[playNextEpisode] Loading URL...');
 
-      return;
-    }
+      if (next.season) setSelectedSeason(next.season);
+      setSelectedEpisode(next.episode);
+      setLoadingVideo(true);
+      setError(null);
+      setLoadingStatus('Загрузка следующей серии...');
 
-    console.log('[playNextEpisode] No preload, loading normally...');
-
-    (async () => {
       try {
-        if (next.season) {
-          setSelectedSeason(next.season);
-        }
-        setSelectedEpisode(next.episode);
-
-        setLoadingVideo(true);
-        setError(null);
-        setLoadingStatus('Загрузка следующей серии...');
-
         const result = await RezkaService.getVideoUrlWithRetry(
           movie.url,
           selectedTranslation?.id || '',
@@ -201,7 +205,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
         setVideoUrl(result.url);
         setVideoQuality(result.quality);
-        setPaused(false);
+        videoLoaded.current = false;
         setLoadingStatus('');
 
         HistoryService.saveLastWatch({
@@ -218,65 +222,78 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         setLoadingStatus('');
       } finally {
         setLoadingVideo(false);
-        isLoadingNextEpisode.current = false;
       }
-    })();
-  }, [getNextEpisode, loadingVideo, movie, selectedTranslation, selectedSeason]);
-
-  // Флаг для отслеживания, что видео было загружено
-  const videoLoaded = useRef(false);
-
-  // Обработчик статуса воспроизведения (expo-av)
-  const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
-    if (!status.isLoaded) {
-      // Ошибка загрузки
-      if (status.error) {
-        console.error('[Player] Video error:', status.error);
-
-        if (retryCount.current < maxRetries) {
-          retryCount.current++;
-          console.log(`[Player] Retrying ${retryCount.current}/${maxRetries}...`);
-
-          RezkaService.getVideoUrlWithRetry(
-            movie.url,
-            selectedTranslation?.id || '',
-            selectedSeason?.id,
-            selectedEpisode?.id,
-            3
-          ).then((result) => {
-            console.log('[Player] Retry got new URL');
-            setVideoUrl(result.url);
-            setVideoQuality(result.quality);
-          }).catch((err) => {
-            console.error('[Player] Retry failed:', err);
-            setError('Ошибка воспроизведения');
-          });
-        } else {
-          setError('Ошибка воспроизведения видео');
-        }
-      }
-      return;
     }
 
-    // Видео загружено
-    if (!videoLoaded.current) {
-      videoLoaded.current = true;
-      console.log('[Player] Video loaded, duration:', status.durationMillis);
-      retryCount.current = 0;
-      // Предзагружаем следующую серию
-      preloadNextEpisode();
-    }
+    setTimeout(() => {
+      isLoadingNextEpisode.current = false;
+      switchingEpisode.current = false;
+    }, 500);
+  }, [getNextEpisode, loadingVideo, movie, selectedTranslation, selectedSeason, isFullscreen]);
 
-    // Видео закончилось
-    if (status.didJustFinish) {
-      console.log('[Player] Video ended');
-      videoLoaded.current = false;
+  // Обработчик загрузки видео
+  const handleLoad = useCallback((data: { duration: number }) => {
+    console.log('[Player] Video loaded, duration:', data.duration);
+    videoDuration.current = data.duration;
+    videoLoaded.current = true;
+    retryCount.current = 0;
+    preloadNextEpisode();
+
+    // Восстанавливаем fullscreen если был
+    if (wasInFullscreen.current && videoRef.current) {
+      console.log('[Player] Restoring fullscreen');
+      setTimeout(() => {
+        videoRef.current?.presentFullscreenPlayer();
+        wasInFullscreen.current = false;
+      }, 500);
+    }
+  }, [preloadNextEpisode]);
+
+  // Обработчик прогресса
+  const handleProgress = useCallback((data: OnProgressData) => {
+    const remaining = videoDuration.current - data.currentTime;
+
+    // Когда до конца меньше 1 секунды
+    if (videoDuration.current > 0 && remaining < 1 && remaining >= 0 && !switchingEpisode.current) {
       if (autoPlay && movieData?.episodes && movieData.episodes.length > 0) {
-        console.log('[Player] Starting next episode');
+        console.log('[Player] Near end, switching to next episode');
         playNextEpisode();
       }
     }
-  }, [movie.url, selectedTranslation?.id, selectedSeason?.id, selectedEpisode?.id, preloadNextEpisode, autoPlay, movieData?.episodes, playNextEpisode]);
+  }, [autoPlay, movieData?.episodes, playNextEpisode]);
+
+  // Обработчик окончания видео
+  const handleEnd = useCallback(() => {
+    console.log('[Player] Video ended');
+    if (autoPlay && movieData?.episodes && movieData.episodes.length > 0 && !switchingEpisode.current) {
+      playNextEpisode();
+    }
+  }, [autoPlay, movieData?.episodes, playNextEpisode]);
+
+  // Обработчик ошибки
+  const handleError = useCallback((error: any) => {
+    console.error('[Player] Error:', error);
+
+    if (retryCount.current < maxRetries) {
+      retryCount.current++;
+      console.log(`[Player] Retrying ${retryCount.current}/${maxRetries}...`);
+
+      RezkaService.getVideoUrlWithRetry(
+        movie.url,
+        selectedTranslation?.id || '',
+        selectedSeason?.id,
+        selectedEpisode?.id,
+        3
+      ).then((result) => {
+        setVideoUrl(result.url);
+        setVideoQuality(result.quality);
+      }).catch(() => {
+        setError('Ошибка воспроизведения');
+      });
+    } else {
+      setError('Ошибка воспроизведения видео');
+    }
+  }, [movie.url, selectedTranslation?.id, selectedSeason?.id, selectedEpisode?.id]);
 
   // Обновляем выбранную серию при смене сезона
   useEffect(() => {
@@ -293,20 +310,17 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     }
   }, [selectedSeason]);
 
-  // Сбрасываем URL и предзагрузку при РУЧНОМ изменении выбора
-  // Не сбрасываем при автоматическом переключении серии (isLoadingNextEpisode)
+  // Сбрасываем URL при изменении выбора
   const prevTranslation = useRef(selectedTranslation?.id);
   const prevSeason = useRef(selectedSeason?.id);
   const prevEpisode = useRef(selectedEpisode?.id);
 
   useEffect(() => {
-    // Пропускаем сброс при автоматическом переключении серии
     if (isLoadingNextEpisode.current) {
       prevEpisode.current = selectedEpisode?.id;
       return;
     }
 
-    // Проверяем, изменилось ли что-то
     const translationChanged = prevTranslation.current !== selectedTranslation?.id;
     const seasonChanged = prevSeason.current !== selectedSeason?.id;
     const episodeChanged = prevEpisode.current !== selectedEpisode?.id;
@@ -460,7 +474,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         {error && (
           <View style={styles.errorBanner}>
             <View style={styles.errorContent}>
-              <Text style={styles.errorTitle}>⚠️ Ошибка</Text>
+              <Text style={styles.errorTitle}>Ошибка</Text>
               <Text style={styles.errorMessage}>{error}</Text>
               <TouchableOpacity
                 style={styles.errorCloseButton}
@@ -481,13 +495,15 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
               ref={videoRef}
               source={{uri: videoUrl}}
               style={styles.video}
-              useNativeControls={true}
-              resizeMode={ResizeMode.CONTAIN}
-              shouldPlay={!paused}
-              onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-              onFullscreenUpdate={(event) => {
-                setIsFullscreen(event.fullscreenUpdate === 1);
-              }}
+              controls={true}
+              resizeMode="contain"
+              paused={paused}
+              onLoad={handleLoad}
+              onProgress={handleProgress}
+              onEnd={handleEnd}
+              onError={handleError}
+              onFullscreenPlayerWillPresent={() => setIsFullscreen(true)}
+              onFullscreenPlayerWillDismiss={() => setIsFullscreen(false)}
             />
             {videoQuality && (
               <View style={styles.qualityBadge}>
@@ -683,11 +699,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderLeftWidth: 4,
     borderLeftColor: '#ff6b6b',
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 5,
   },
   errorContent: {
     gap: 12,

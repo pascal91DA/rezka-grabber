@@ -1,83 +1,99 @@
 # Rezka Grabber
 
-React Native приложение для поиска фильмов на сайте rezka.ag
+A React Native app for searching and watching movies/series from rezka.ag directly on your device.
 
-## Функционал
+## Features
 
-- Поиск фильмов по названию
-- Отображение постера, названия, оригинального названия и года выпуска
-- Открытие страницы фильма в браузере при нажатии на карточку
+- Search movies and series by title
+- Multiple dubbing/translation options
+- Season and episode selection for series
+- Built-in video player with fullscreen support
+- Auto-play: automatically advances to the next episode
+- Next episode pre-loading for seamless playback
+- Watch history and "Continue watching" shortcut
 
-## Установка
+## Requirements
 
-1. Убедитесь, что у вас установлен Node.js (версия 16 или выше)
-2. Установите Expo CLI глобально (если еще не установлен):
-```bash
-npm install -g expo-cli
-```
+- Node.js 18+
+- Android Studio (for Android) or Xcode on macOS (for iOS)
 
-3. Перейдите в директорию проекта:
-```bash
-cd RezkaGrabber
-```
+## Setup
 
-4. Установите зависимости:
 ```bash
 npm install
 ```
 
-## Запуск приложения
+## Running
 
-### Запуск на веб-версии
 ```bash
-npm run web
-```
-
-### Запуск на Android
-```bash
+# Android
 npm run android
-```
-Требования: Android Studio и настроенный Android эмулятор или подключенное устройство
 
-### Запуск на iOS
-```bash
+# iOS (macOS only)
 npm run ios
-```
-Требования: macOS с установленным Xcode
 
-### Запуск через Expo Go
-1. Установите приложение Expo Go на ваш смартфон (доступно в App Store и Google Play)
-2. Запустите:
-```bash
+# Expo Go (scan QR with the Expo Go app)
 npm start
 ```
-3. Отсканируйте QR-код в приложении Expo Go
 
-## Структура проекта
+## How to Use
+
+### 1. Search
+Type a movie or series title in the search bar and press **Search**. Results appear as cards with poster, title, and year.
+
+### 2. Continue Watching
+If you have a watch history, a **Continue Watching** banner appears at the top of the search screen. Tap it to resume from the last watched episode.
+
+### 3. Player Screen
+Tap any search result to open the player. Before playback starts:
+
+| Step | What to do |
+|------|-----------|
+| **Translation** | Pick a dubbing/subtitle track from the horizontal list |
+| **Season** | Select a season (series only) |
+| **Episode** | Select an episode (series only) |
+| **Load** | Tap **Load video** — the app fetches and plays the stream |
+
+- The player retries automatically up to 5 times if a stream URL fails.
+- A quality badge (e.g. `1080p`) is shown in the top-right corner of the video.
+
+### 4. Auto-play
+Toggle **Auto-play** at the bottom of the player screen. When enabled, the next episode starts automatically when the current one ends. The title of the upcoming episode is shown below the toggle.
+
+### 5. Watch History
+Every successfully loaded video is saved to history. The 10 most recent titles appear on the search screen below the search bar.
+
+## Project Structure
 
 ```
-RezkaGrabber/
-├── src/
-│   ├── components/        # React компоненты
-│   │   └── MovieCard.tsx  # Карточка фильма
-│   ├── screens/           # Экраны приложения
-│   │   └── SearchScreen.tsx  # Экран поиска
-│   ├── services/          # Сервисы для API
-│   │   └── rezkaService.ts   # Сервис парсинга rezka.ag
-│   └── types/             # TypeScript типы
-│       └── Movie.ts       # Тип данных фильма
-├── App.js                 # Точка входа в приложение
-└── package.json           # Зависимости проекта
+src/
+├── components/
+│   └── MovieCard.tsx          # Search result card
+├── screens/
+│   ├── SearchScreen.tsx        # Search + history
+│   └── PlayerScreen.tsx        # Video player + selectors
+├── services/
+│   ├── rezkaService.ts         # HTML parsing & stream URL extraction
+│   └── historyService.ts       # AsyncStorage watch history
+├── types/
+│   ├── Movie.ts
+│   ├── Stream.ts
+│   └── navigation.ts
+└── utils/
+    └── streamParser.ts         # Stream URL decoding
 ```
 
-## Технологии
+## Tech Stack
 
-- React Native
-- Expo
-- TypeScript
-- axios - HTTP клиент
-- htmlparser2-without-node-native - парсинг HTML
+| Package | Purpose |
+|---------|---------|
+| React Native 0.81 | Cross-platform mobile framework |
+| Expo 54 | Build toolchain & native modules |
+| react-native-video | Video playback |
+| axios | HTTP requests |
+| htmlparser2-without-node-native | HTML parsing |
+| AsyncStorage | Local watch history |
 
-## Примечание
+## Notes
 
-Приложение использует парсинг HTML-страниц сайта rezka.ag. При изменении структуры сайта может потребоваться обновление логики парсинга в файле `src/services/rezkaService.ts`.
+The app parses HTML from rezka.ag. If the site changes its structure, update the parsing logic in `src/services/rezkaService.ts`.
