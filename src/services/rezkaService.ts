@@ -1,109 +1,67 @@
 import axios from 'axios';
 import {Platform} from 'react-native';
 import {Movie} from '../types/Movie';
-import {parseVideoUrlFromResponse, parseStreamInfo, applyUrlFixes} from '../utils/streamParser';
-import type {StreamQuality, StreamInfo} from '../types/Stream';
+import {parseStreamInfo, applyUrlFixes} from '../utils/streamParser';
+import type {StreamInfo} from '../types/Stream';
 
 const REZKA_URL = 'https://rezka.ag';
 const PROXY_URL = 'http://localhost:3001/proxy';
 
-// На вебе используем прокси для обхода CORS, на мобильных - прямые запросы
 const BASE_URL = Platform.OS === 'web' ? PROXY_URL : REZKA_URL;
-
-// localStorage параметры для эмуляции реального пользователя
-const PERSISTENT_COOKIES = 'pljsquality=1080p Ultra; pljsuserid=xxtb5wpn2b; pljsvolume=1; pljsvolume_updated=1';
 
 const COMMON_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-  'Accept': '*/*',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
   'Accept-Encoding': 'gzip, deflate, br',
-  'Referer': REZKA_URL,
-  'Origin': REZKA_URL,
 };
 
-// Создаем экземпляр axios с настройками по умолчанию
 const axiosInstance = axios.create({
   headers: COMMON_HEADERS,
-  withCredentials: true,
   timeout: 30000,
 });
 
-/**
- * Преобразует URL rezka.ag в URL через прокси (только для веба)
- */
 function toProxyUrl(url: string): string {
-  if (Platform.OS !== 'web') {
-    return url;
-  }
+  if (Platform.OS !== 'web') return url;
   return url.replace(REZKA_URL, PROXY_URL);
 }
 
-// Хранилище для cookies сессии (PHPSESSID и другие динамические)
-let sessionCookies: string | null = null;
-
 /**
- * Получает свежую сессию от сервера
+ * Извлекает значение "streams" из HTML страницы rezka.ag.
+ * Строка вида: sof.tv.initCDNSeriesEvents(..., {"streams":"...","..."})
  */
-async function getSessionCookies(movieUrl: string): Promise<string> {
+function extractStreamsFromHtml(html: string): string | null {
+  const match = html.match(/"streams"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (!match) return null;
   try {
-    console.log('[getSessionCookies] Fetching session from:', toProxyUrl(movieUrl));
-
-    const response = await axiosInstance.get(toProxyUrl(movieUrl), {
-      headers: {
-        'Cookie': PERSISTENT_COOKIES,
-      },
-    });
-
-    console.log('[getSessionCookies] Response headers:', JSON.stringify(response.headers, null, 2));
-
-    // Пробуем разные варианты имени заголовка
-    const setCookieHeaders = response.headers['set-cookie'] ||
-      response.headers['Set-Cookie'] ||
-      response.headers['SET-COOKIE'];
-
-    if (setCookieHeaders) {
-      console.log('[getSessionCookies] Set-Cookie headers found:', setCookieHeaders);
-
-      const cookiesArray = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
-      const cookies = cookiesArray
-        .map((cookie: string) => cookie.split(';')[0])
-        .join('; ');
-
-      sessionCookies = `${PERSISTENT_COOKIES}; ${cookies}`;
-      console.log('[getSessionCookies] Session cookies set:', sessionCookies);
-      return sessionCookies;
-    }
-
-    // Попробуем извлечь PHPSESSID из HTML если есть
-    const html = response.data;
-    const phpSessionMatch = html.match(/PHPSESSID['":\s=]+([a-zA-Z0-9]+)/);
-    if (phpSessionMatch) {
-      sessionCookies = `${PERSISTENT_COOKIES}; PHPSESSID=${phpSessionMatch[1]}`;
-      console.log('[getSessionCookies] PHPSESSID extracted from HTML:', phpSessionMatch[1]);
-      return sessionCookies;
-    }
-
-    console.log('[getSessionCookies] No cookies found, using persistent only');
-    sessionCookies = PERSISTENT_COOKIES;
-    return sessionCookies;
-  } catch (error) {
-    console.error('[getSessionCookies] Error:', error);
-    sessionCookies = PERSISTENT_COOKIES;
-    return sessionCookies;
+    // JSON.parse корректно обработает все escape-последовательности (\/, \\, \n и т.д.)
+    return JSON.parse('"' + match[1] + '"');
+  } catch {
+    return match[1].replace(/\\\//g, '/');
   }
 }
 
 /**
- * Получает актуальные cookies для запросов
+ * Парсит slug переводчиков из HTML страницы.
+ * Из ссылок вида href=".../{translatorId}-{slug}/{season}-season.html"
+ * Возвращает map: translatorId -> "translatorId-slug"
  */
-function getCookies(): string {
-  return sessionCookies || PERSISTENT_COOKIES;
+function parseTranslatorSlugs(html: string): Record<string, string> {
+  const slugs: Record<string, string> = {};
+  const regex = /href="[^"]*\/(\d+-([\w-]+))\/\d+-season/g;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    const fullSlug = match[1]; // "56-dublyazh"
+    const id = fullSlug.split('-')[0]; // "56"
+    slugs[id] = fullSlug;
+  }
+  return slugs;
 }
 
 export interface Translation {
   id: string;
   title: string;
+  slug?: string; // e.g. "56-dublyazh", нужен для построения URL эпизодов
 }
 
 export interface Season {
@@ -122,206 +80,149 @@ export interface MovieData {
   translations: Translation[];
   seasons?: Season[];
   episodes?: Episode[];
-  favs?: string;
 }
-
-// Кэш данных страницы для передачи с запросами
-let cachedFavs: string = '';
-let cachedMovieId: string = '';
 
 export class RezkaService {
   static async getMovieData(url: string): Promise<MovieData> {
-    try {
-      await getSessionCookies(url);
+    const response = await axiosInstance.get(toProxyUrl(url), {
+      headers: {'Referer': REZKA_URL},
+    });
 
-      const response = await axiosInstance.get(toProxyUrl(url), {
-        headers: {
-          'Cookie': getCookies(),
-        },
-      });
+    const html = response.data;
 
-      const html = response.data;
+    const idMatch = html.match(/data-id="(\d+)"/);
+    const movieId = idMatch ? idMatch[1] : '';
 
-      const idMatch = html.match(/data-id="(\d+)"/);
-      const movieId = idMatch ? idMatch[1] : '';
-      cachedMovieId = movieId;
+    // Парсим slug переводчиков из ссылок на сезоны
+    const slugMap = parseTranslatorSlugs(html);
 
-      // Извлекаем favs - обычно это токен для AJAX запросов
-      const favsMatch = html.match(/data-favs="([^"]+)"/);
-      cachedFavs = favsMatch ? favsMatch[1] : '';
-      console.log('[getMovieData] Extracted favs:', cachedFavs);
+    const translations: Translation[] = [];
+    const translatorBlockMatch = html.match(/<ul id="translators-list"[^>]*>([\s\S]*?)<\/ul>/i);
 
-      const translations: Translation[] = [];
-      const translatorBlockMatch = html.match(/<ul id="translators-list"[^>]*>([\s\S]*?)<\/ul>/i);
+    if (translatorBlockMatch) {
+      const translatorsList = translatorBlockMatch[1];
+      const translationRegex = /<(?:a|li)[^>]*data-translator_id="(\d+)"[^>]*>/gi;
+      let match;
 
-      if (translatorBlockMatch) {
-        const translatorsList = translatorBlockMatch[1];
-        const translationRegex = /<(?:a|li)[^>]*data-translator_id="(\d+)"[^>]*>/gi;
-        let match;
+      while ((match = translationRegex.exec(translatorsList)) !== null) {
+        const translatorId = match[1];
+        const fullTag = match[0];
+        const titleMatch = fullTag.match(/title="([^"]+)"/);
+        const title = titleMatch ? titleMatch[1] : `Перевод ${translatorId}`;
 
-        while ((match = translationRegex.exec(translatorsList)) !== null) {
-          const translatorId = match[1];
-          const fullTag = match[0];
-
-          const titleMatch = fullTag.match(/title="([^"]+)"/);
-          const title = titleMatch ? titleMatch[1] : `Перевод ${translatorId}`;
-
-          translations.push({
-            id: translatorId,
-            title: title,
-          });
-        }
+        translations.push({
+          id: translatorId,
+          title,
+          slug: slugMap[translatorId],
+        });
       }
-
-      const seasons: Season[] = [];
-      const seasonsBlockMatch = html.match(/<ul id="simple-seasons-tabs"[^>]*>([\s\S]*?)<\/ul>/i);
-
-      if (seasonsBlockMatch) {
-        const seasonsList = seasonsBlockMatch[1];
-        const seasonRegex = /<(?:a|li)[^>]*data-tab_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
-        let match;
-
-        while ((match = seasonRegex.exec(seasonsList)) !== null) {
-          seasons.push({
-            id: match[1],
-            title: match[2].trim(),
-          });
-        }
-      }
-
-      const episodes: Episode[] = [];
-      const episodesBlockMatch = html.match(/<div id="simple-episodes-tabs"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i);
-
-      if (episodesBlockMatch) {
-        const episodesList = episodesBlockMatch[1];
-        const episodeRegex = /<(?:a|li)[^>]*data-season_id="(\d+)"[^>]*data-episode_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
-        let match;
-
-        while ((match = episodeRegex.exec(episodesList)) !== null) {
-          episodes.push({
-            id: match[2],
-            title: match[3].trim(),
-            seasonId: match[1],
-          });
-        }
-      }
-
-      return {
-        id: movieId,
-        translations,
-        seasons: seasons.length > 0 ? seasons : undefined,
-        episodes: episodes.length > 0 ? episodes : undefined,
-        favs: cachedFavs || undefined,
-      };
-    } catch (error) {
-      throw error;
     }
+
+    // Если только один перевод — его slug берём из любой ссылки
+    if (translations.length === 1 && !translations[0].slug) {
+      const firstSlug = Object.values(slugMap)[0];
+      if (firstSlug) translations[0].slug = firstSlug;
+    }
+
+    const seasons: Season[] = [];
+    const seasonsBlockMatch = html.match(/<ul id="simple-seasons-tabs"[^>]*>([\s\S]*?)<\/ul>/i);
+
+    if (seasonsBlockMatch) {
+      const seasonsList = seasonsBlockMatch[1];
+      const seasonRegex = /<(?:a|li)[^>]*data-tab_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
+      let match;
+
+      while ((match = seasonRegex.exec(seasonsList)) !== null) {
+        seasons.push({id: match[1], title: match[2].trim()});
+      }
+    }
+
+    const episodes: Episode[] = [];
+    const episodesBlockMatch = html.match(/<div id="simple-episodes-tabs"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i);
+
+    if (episodesBlockMatch) {
+      const episodesList = episodesBlockMatch[1];
+      const episodeRegex = /<(?:a|li)[^>]*data-season_id="(\d+)"[^>]*data-episode_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
+      let match;
+
+      while ((match = episodeRegex.exec(episodesList)) !== null) {
+        episodes.push({
+          id: match[2],
+          title: match[3].trim(),
+          seasonId: match[1],
+        });
+      }
+    }
+
+    return {
+      id: movieId,
+      translations,
+      seasons: seasons.length > 0 ? seasons : undefined,
+      episodes: episodes.length > 0 ? episodes : undefined,
+    };
   }
 
+  /**
+   * Получает потоки для конкретной серии/фильма.
+   * Вместо AJAX-вызова — фетчит HTML страницу эпизода и парсит из неё "streams".
+   *
+   * URL-паттерн:
+   *   Фильм:   {movieBase}/{translatorSlug}.html  (или просто movieUrl)
+   *   Сезон:   {movieBase}/{translatorSlug}/{season}-season.html
+   *   Эпизод:  {movieBase}/{translatorSlug}/{season}-season/{episode}-episode.html
+   */
   static async getAvailableStreams(
     movieUrl: string,
     translationId: string,
+    translatorSlug: string | undefined,
     season?: string,
     episode?: string,
-    retryCount: number = 0
   ): Promise<StreamInfo> {
-    try {
-      // Всегда получаем свежую сессию перед запросом потоков
-      if (!sessionCookies || retryCount > 0) {
-        await getSessionCookies(movieUrl);
-      }
+    const movieBase = movieUrl.replace(/\.html$/, '');
+    const slug = translatorSlug;
 
-      const urlParts = movieUrl.split('/');
-      const movieIdPart = urlParts[urlParts.length - 1];
-      const movieIdMatch = movieIdPart.match(/(\d+)-/);
-      const movieId = movieIdMatch ? movieIdMatch[1] : '';
+    let pageUrl: string;
 
-      const params = new URLSearchParams();
-      params.append('id', movieId);
-      params.append('translator_id', translationId);
-
-      if (season) {
-        params.append('season', season);
-      }
-
-      if (episode) {
-        params.append('episode', episode);
-      }
-
-      // Добавляем favs если есть (важно для авторизации запроса)
-      if (cachedFavs) {
-        params.append('favs', cachedFavs);
-      }
-
-      params.append('action', season ? 'get_stream' : 'get_movie');
-
-      const endpoint = season ? `${BASE_URL}/ajax/get_cdn_series/` : `${BASE_URL}/ajax/get_cdn_series/`;
-
-      const cookies = getCookies();
-
-      const response = await axiosInstance.post(endpoint, params.toString(), {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Referer': movieUrl,
-          'Cookie': cookies,
-        },
-      });
-
-      console.log('[getAvailableStreams] Response status:', response.status);
-      console.log('[getAvailableStreams] Response data:', JSON.stringify(response.data, null, 2));
-
-      if (response.data.success === false) {
-        const errorMessage = response.data.message || '';
-
-        // Обрабатываем ошибки сессии и сети - пробуем обновить сессию
-        if (errorMessage.includes('Время сессии истекло') ||
-          errorMessage.includes('Ошибка сети') ||
-          errorMessage.includes('обновите страницу')) {
-          if (retryCount < 2) {
-            console.log(`[getAvailableStreams] Session error, refreshing... (attempt ${retryCount + 1})`);
-            sessionCookies = null; // Сбрасываем cookies
-            await getSessionCookies(movieUrl);
-            return this.getAvailableStreams(movieUrl, translationId, season, episode, retryCount + 1);
-          }
-          throw new Error(`Не удалось получить сессию после ${retryCount + 1} попыток: ${errorMessage}`);
-        }
-        throw new Error(`Server error: ${errorMessage}`);
-      }
-
-      if (response.data.url) {
-        const rawUrl = response.data.url;
-        return parseStreamInfo(rawUrl);
-      }
-
-      // Проверяем альтернативные поля где может быть видео
-      const possibleFields = ['url', 'src', 'video', 'stream', 'file', 'link', 'player'];
-      const foundField = possibleFields.find(field => response.data[field]);
-
-      if (foundField) {
-        console.log(`[getAvailableStreams] Found video in field: ${foundField}`);
-        return parseStreamInfo(response.data[foundField]);
-      }
-
-      console.error('[getAvailableStreams] No video URL found. Available fields:', Object.keys(response.data));
-      throw new Error(`Video URL not found in response. Fields: ${Object.keys(response.data).join(', ')}`);
-    } catch (error) {
-      throw error;
+    if (slug && season && episode) {
+      pageUrl = `${movieBase}/${slug}/${season}-season/${episode}-episode.html`;
+    } else if (slug && season) {
+      pageUrl = `${movieBase}/${slug}/${season}-season.html`;
+    } else if (slug) {
+      pageUrl = `${movieBase}/${slug}.html`;
+    } else {
+      // Нет slug — просто используем базовую страницу (streams для первого эпизода)
+      pageUrl = movieUrl;
     }
+
+    console.log('[getAvailableStreams] Fetching:', pageUrl);
+
+    const response = await axiosInstance.get(toProxyUrl(pageUrl), {
+      headers: {'Referer': REZKA_URL},
+    });
+
+    const html = response.data;
+    const streams = extractStreamsFromHtml(html);
+
+    if (!streams) {
+      console.error('[getAvailableStreams] streams not found in HTML');
+      console.error('[getAvailableStreams] page URL was:', pageUrl);
+      throw new Error('Не удалось найти потоки на странице. Возможно, контент недоступен.');
+    }
+
+    console.log('[getAvailableStreams] streams found, length:', streams.length);
+    return parseStreamInfo(streams);
   }
 
   static async getVideoUrlWithRetry(
     movieUrl: string,
     translationId: string,
+    translatorSlug: string | undefined,
     season?: string,
     episode?: string,
-    maxRetries: number = 5,
+    maxRetries: number = 3,
     onProgress?: (attempt: number, maxAttempts: number, quality: string | null) => void
   ): Promise<{ url: string; quality: string; attempts: number }> {
-    // Приоритет качества (от лучшего к худшему)
     const qualityPriority = ['1080p Ultra', '1080p', '720p', '480p', '360p', 'unknown'];
-
-    // Храним лучший результат между попытками
     let bestResult: { url: string; quality: string; attempts: number } | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -329,14 +230,14 @@ export class RezkaService {
         const streamInfo = await this.getAvailableStreams(
           movieUrl,
           translationId,
+          translatorSlug,
           season,
-          episode
+          episode,
         );
 
         console.log(`[getVideoUrlWithRetry] Attempt ${attempt}: found ${streamInfo.streams.length} streams`);
-        streamInfo.streams.forEach(s => console.log(`  - ${s.quality}: ${s.url.substring(0, 50)}...`));
+        streamInfo.streams.forEach(s => console.log(`  - ${s.quality}: ${s.url.substring(0, 80)}...`));
 
-        // Находим лучший поток из текущего ответа
         const currentBest = streamInfo.selectedStream;
         const currentQuality = currentBest?.quality || 'unknown';
 
@@ -346,85 +247,66 @@ export class RezkaService {
           const currentPriority = qualityPriority.indexOf(currentQuality);
           const bestPriority = bestResult ? qualityPriority.indexOf(bestResult.quality) : qualityPriority.length;
 
-          // Если текущий результат лучше сохранённого - обновляем
           if (currentPriority < bestPriority) {
             bestResult = {
               url: applyUrlFixes(currentBest.url),
               quality: currentQuality,
-              attempts: attempt
+              attempts: attempt,
             };
-            console.log(`[getVideoUrlWithRetry] New best quality: ${currentQuality}`);
-            console.log(`[attempts] ${attempt}`);
+            console.log(`[getVideoUrlWithRetry] New best: ${currentQuality}`);
           }
 
-          // Если получили максимальное качество (1080p Ultra или 1080p) - сразу возвращаем
+          // Достаточно хорошее качество — возвращаем сразу
           if (currentQuality === '1080p Ultra' || currentQuality === '1080p') {
-            console.log(`[getVideoUrlWithRetry] Got good quality (${currentQuality}), returning immediately`);
             return bestResult!;
           }
         }
 
-        // Если это последняя попытка - возвращаем лучшее что есть
         if (attempt === maxRetries) {
-          if (bestResult) {
-            console.log(`[getVideoUrlWithRetry] Max retries reached, returning best: ${bestResult.quality}`);
-            return bestResult;
-          }
+          if (bestResult) return bestResult;
           throw new Error('Не удалось получить ссылку на видео после всех попыток');
         }
 
-        console.log('-> 3')
-
-        // bug. player frezes here
-        // await new Promise(resolve => setTimeout(resolve, 300));
-
-        console.log('-> 4')
-
       } catch (error) {
         console.error(`[getVideoUrlWithRetry] Attempt ${attempt} failed:`, error);
-        if (attempt === maxRetries) {
-          // Если есть сохранённый результат - возвращаем его
-          if (bestResult) {
-            console.log(`[getVideoUrlWithRetry] Error on last attempt, but have saved result: ${bestResult.quality}`);
-            return bestResult;
-          }
+
+        const is503 = (error as any)?.response?.status === 503;
+        if (is503) {
+          console.log('[getVideoUrlWithRetry] Got 503, stopping retries');
+          if (bestResult) return bestResult;
           throw error;
         }
-        // bug. player frezes here
-        // await new Promise(resolve => setTimeout(resolve, 500));
-      }
 
-      console.log('-> 5')
+        if (attempt === maxRetries) {
+          if (bestResult) return bestResult;
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
     }
 
     throw new Error('Не удалось получить ссылку на видео');
   }
 
   static async searchMovies(query: string): Promise<Movie[]> {
-    try {
-      if (!query.trim()) {
-        return [];
+    if (!query.trim()) return [];
+
+    const params = new URLSearchParams();
+    params.append('q', query);
+
+    const response = await axiosInstance.post(
+      `${BASE_URL}/engine/ajax/search.php`,
+      params.toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'text/html, */*; q=0.01',
+        },
       }
+    );
 
-      const params = new URLSearchParams();
-      params.append('q', query);
-
-      const response = await axiosInstance.post(
-        `${BASE_URL}/engine/ajax/search.php`,
-        params.toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'text/html, */*; q=0.01',
-          },
-        }
-      );
-
-      return this.parseMoviesFromHtml(response.data);
-    } catch (error) {
-      throw error;
-    }
+    return this.parseMoviesFromHtml(response.data);
   }
 
   private static parseMoviesFromHtml(html: string): Movie[] {
@@ -442,20 +324,16 @@ export class RezkaService {
         const metaInfo = match[5].trim();
         const ratingText = match[7];
 
-        const metaParts = metaInfo.split(',').map(s => s.trim());
+        const metaParts = metaInfo.split(',').map((s: string) => s.trim());
         let originalTitle: string | undefined;
         let year: string | undefined;
 
-        if (metaParts.length > 0 && metaParts[0]) {
-          originalTitle = metaParts[0];
-        }
+        if (metaParts.length > 0 && metaParts[0]) originalTitle = metaParts[0];
 
         if (metaParts.length > 0) {
           const lastPart = metaParts[metaParts.length - 1];
           const yearMatch = lastPart.match(/(\d{4})/);
-          if (yearMatch) {
-            year = yearMatch[1];
-          }
+          if (yearMatch) year = yearMatch[1];
         }
 
         const fullTitle = [titlePrefix, title, titleSuffix].filter(s => s).join(' ').trim();
@@ -489,7 +367,7 @@ export class RezkaService {
           }
         }
       }
-    } catch (parseError) {
+    } catch {
       // Ignore parse errors
     }
 

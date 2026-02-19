@@ -116,6 +116,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       const result = await RezkaService.getVideoUrlWithRetry(
         movie.url,
         selectedTranslation?.id || '',
+        selectedTranslation?.slug,
         next.season?.id || selectedSeason?.id,
         next.episode.id,
         3
@@ -195,6 +196,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         const result = await RezkaService.getVideoUrlWithRetry(
           movie.url,
           selectedTranslation?.id || '',
+          selectedTranslation?.slug,
           next.season?.id || selectedSeason?.id,
           next.episode.id,
           5,
@@ -281,6 +283,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       RezkaService.getVideoUrlWithRetry(
         movie.url,
         selectedTranslation?.id || '',
+        selectedTranslation?.slug,
         selectedSeason?.id,
         selectedEpisode?.id,
         3
@@ -410,6 +413,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       const result = await RezkaService.getVideoUrlWithRetry(
         movie.url,
         selectedTranslation?.id || '',
+        selectedTranslation?.slug,
         selectedSeason?.id,
         selectedEpisode?.id,
         5,
