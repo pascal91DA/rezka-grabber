@@ -8,6 +8,7 @@ export interface ResumeParams {
 
 export type RootStackParamList = {
   Search: undefined;
+  History: undefined;
   Player: {
     movie: Movie;
     resume?: ResumeParams;

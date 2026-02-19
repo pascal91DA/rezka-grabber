@@ -2,6 +2,7 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SearchScreen } from './src/screens/SearchScreen';
+import { HistoryScreen } from './src/screens/HistoryScreen';
 import { PlayerScreen } from './src/screens/PlayerScreen';
 import { DebugWebViewScreen } from './src/screens/DebugWebViewScreen';
 
@@ -26,6 +27,11 @@ export default function App() {
           <Stack.Screen
             name="Search"
             component={SearchScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="History"
+            component={HistoryScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen

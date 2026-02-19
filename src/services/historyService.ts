@@ -3,7 +3,18 @@ import { Movie } from '../types/Movie';
 
 const HISTORY_KEY = '@rezka_history';
 const LAST_WATCH_KEY = '@rezka_last_watch';
-const MAX_HISTORY_ITEMS = 10;
+const MAX_HISTORY_ITEMS = 50;
+
+export interface HistoryEntry {
+  movie: Movie;
+  translationId?: string;
+  translationTitle?: string;
+  seasonId?: string;
+  seasonTitle?: string;
+  episodeId?: string;
+  episodeTitle?: string;
+  timestamp: number;
+}
 
 export interface LastWatch {
   movie: Movie;
@@ -18,17 +29,31 @@ export interface LastWatch {
 
 export class HistoryService {
   /**
-   * Получает историю просмотров
+   * Составной ключ для уникальной идентификации записи
    */
-  static async getHistory(): Promise<Movie[]> {
+  static entryKey(entry: Pick<HistoryEntry, 'movie' | 'translationId' | 'seasonId' | 'episodeId'>): string {
+    return [
+      entry.movie.id,
+      entry.translationId || '',
+      entry.seasonId || '',
+      entry.episodeId || '',
+    ].join('::');
+  }
+
+  static async getHistory(): Promise<HistoryEntry[]> {
     try {
       const historyJson = await AsyncStorage.getItem(HISTORY_KEY);
-      if (!historyJson) {
-        return [];
+      if (!historyJson) return [];
+
+      const data = JSON.parse(historyJson);
+      if (!Array.isArray(data) || data.length === 0) return [];
+
+      // Миграция старого формата Movie[] → HistoryEntry[]
+      if ('id' in data[0] && !('movie' in data[0])) {
+        return (data as Movie[]).map(movie => ({ movie, timestamp: Date.now() }));
       }
 
-      const history: Movie[] = JSON.parse(historyJson);
-      return history;
+      return data as HistoryEntry[];
     } catch (error) {
       console.error('Error reading history:', error);
       return [];
@@ -36,34 +61,41 @@ export class HistoryService {
   }
 
   /**
-   * Добавляет фильм в историю
-   * Если фильм уже есть, перемещает его в начало
+   * Добавляет запись в историю.
+   * Если запись с таким же ключом уже есть — перемещает в начало с обновлённым timestamp.
    */
-  static async addToHistory(movie: Movie): Promise<void> {
+  static async addToHistory(entry: Omit<HistoryEntry, 'timestamp'>): Promise<void> {
     try {
       const history = await this.getHistory();
+      const key = this.entryKey(entry);
 
-      // Удаляем фильм если он уже есть (чтобы избежать дубликатов)
-      const filteredHistory = history.filter(item => item.id !== movie.id);
+      // Убираем существующую запись с таким же ключом
+      const filtered = history.filter(e => this.entryKey(e) !== key);
 
-      // Добавляем фильм в начало
-      const newHistory = [movie, ...filteredHistory];
+      const newEntry: HistoryEntry = { ...entry, timestamp: Date.now() };
+      const newHistory = [newEntry, ...filtered].slice(0, MAX_HISTORY_ITEMS);
 
-      // Ограничиваем количество элементов
-      const trimmedHistory = newHistory.slice(0, MAX_HISTORY_ITEMS);
-
-      // Сохраняем
-      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(trimmedHistory));
-
-      console.log(`Added "${movie.title}" to history`);
+      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+      console.log(`Added to history: "${entry.movie.title}" [${key}]`);
     } catch (error) {
       console.error('Error adding to history:', error);
     }
   }
 
   /**
-   * Очищает всю историю
+   * Удаляет конкретную запись по составному ключу
    */
+  static async removeFromHistory(key: string): Promise<void> {
+    try {
+      const history = await this.getHistory();
+      const newHistory = history.filter(e => this.entryKey(e) !== key);
+      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+      console.log(`Removed history entry: ${key}`);
+    } catch (error) {
+      console.error('Error removing from history:', error);
+    }
+  }
+
   static async clearHistory(): Promise<void> {
     try {
       await AsyncStorage.removeItem(HISTORY_KEY);
@@ -74,44 +106,32 @@ export class HistoryService {
   }
 
   /**
-   * Удаляет конкретный фильм из истории
-   */
-  static async removeFromHistory(movieId: string): Promise<void> {
-    try {
-      const history = await this.getHistory();
-      const newHistory = history.filter(item => item.id !== movieId);
-      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
-      console.log(`Removed movie ${movieId} from history`);
-    } catch (error) {
-      console.error('Error removing from history:', error);
-    }
-  }
-
-  /**
-   * Сохраняет последний просмотр (для функции "Продолжить просмотр")
+   * Сохраняет последний просмотр и добавляет запись в историю
    */
   static async saveLastWatch(lastWatch: Omit<LastWatch, 'timestamp'>): Promise<void> {
     try {
-      const data: LastWatch = {
-        ...lastWatch,
-        timestamp: Date.now(),
-      };
+      const data: LastWatch = { ...lastWatch, timestamp: Date.now() };
       await AsyncStorage.setItem(LAST_WATCH_KEY, JSON.stringify(data));
       console.log(`Saved last watch: ${lastWatch.movie.title}`);
+
+      await this.addToHistory({
+        movie: lastWatch.movie,
+        translationId: lastWatch.translationId,
+        translationTitle: lastWatch.translationTitle,
+        seasonId: lastWatch.seasonId,
+        seasonTitle: lastWatch.seasonTitle,
+        episodeId: lastWatch.episodeId,
+        episodeTitle: lastWatch.episodeTitle,
+      });
     } catch (error) {
       console.error('Error saving last watch:', error);
     }
   }
 
-  /**
-   * Получает последний просмотр
-   */
   static async getLastWatch(): Promise<LastWatch | null> {
     try {
       const data = await AsyncStorage.getItem(LAST_WATCH_KEY);
-      if (!data) {
-        return null;
-      }
+      if (!data) return null;
       return JSON.parse(data) as LastWatch;
     } catch (error) {
       console.error('Error getting last watch:', error);
@@ -119,9 +139,6 @@ export class HistoryService {
     }
   }
 
-  /**
-   * Очищает последний просмотр
-   */
   static async clearLastWatch(): Promise<void> {
     try {
       await AsyncStorage.removeItem(LAST_WATCH_KEY);

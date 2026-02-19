@@ -4,8 +4,6 @@ import { Movie } from '../types/Movie';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/navigation';
-import { HistoryService } from '../services/historyService';
-
 interface MovieCardProps {
   movie: Movie;
 }
@@ -15,10 +13,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 export const MovieCard: React.FC<MovieCardProps> = ({ movie }) => {
   const navigation = useNavigation<NavigationProp>();
 
-  const handlePress = async () => {
-    // Сохраняем фильм в историю перед открытием
-    await HistoryService.addToHistory(movie);
-
+  const handlePress = () => {
     navigation.navigate('Player', { movie });
   };
 

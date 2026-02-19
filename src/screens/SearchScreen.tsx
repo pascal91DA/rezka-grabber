@@ -15,7 +15,7 @@ import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {MovieCard} from '../components/MovieCard';
 import {RezkaService} from '../services/rezkaService';
-import {HistoryService, LastWatch} from '../services/historyService';
+import {HistoryService, HistoryEntry, LastWatch} from '../services/historyService';
 import {Movie} from '../types/Movie';
 import {RootStackParamList} from '../types/navigation';
 
@@ -23,7 +23,7 @@ export const SearchScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [query, setQuery] = useState('');
   const [movies, setMovies] = useState<Movie[]>([]);
-  const [history, setHistory] = useState<Movie[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [lastWatch, setLastWatch] = useState<LastWatch | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,11 +37,18 @@ export const SearchScreen: React.FC = () => {
 
   const loadHistory = async () => {
     try {
-      const [recentMovies, savedLastWatch] = await Promise.all([
+      const [entries, savedLastWatch] = await Promise.all([
         HistoryService.getHistory(),
         HistoryService.getLastWatch(),
       ]);
-      setHistory(recentMovies);
+      // Показываем уникальные фильмы (первое вхождение каждого movie.id)
+      const seen = new Set<string>();
+      const unique = entries.filter(e => {
+        if (seen.has(e.movie.id)) return false;
+        seen.add(e.movie.id);
+        return true;
+      });
+      setHistory(unique);
       setLastWatch(savedLastWatch);
     } catch (error) {
       console.error('Error loading history:', error);
@@ -135,6 +142,11 @@ export const SearchScreen: React.FC = () => {
       <StatusBar barStyle="light-content"/>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Поиск фильмов</Text>
+        <TouchableOpacity
+          style={styles.historyButton}
+          onPress={() => navigation.navigate('History')}>
+          <Text style={styles.historyButtonText}>История</Text>
+        </TouchableOpacity>
       </View>
       <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
@@ -198,8 +210,8 @@ export const SearchScreen: React.FC = () => {
 
       <FlatList
         data={query.trim() ? movies : history}
-        keyExtractor={(item) => item.id}
-        renderItem={({item}) => <MovieCard movie={item}/>}
+        keyExtractor={(item) => query.trim() ? (item as Movie).id : (item as HistoryEntry).movie.id}
+        renderItem={({item}) => <MovieCard movie={query.trim() ? item as Movie : (item as HistoryEntry).movie}/>}
         contentContainerStyle={
           (query.trim() ? movies.length === 0 : history.length === 0)
             ? styles.emptyList
@@ -224,6 +236,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#2a2a2a',
     paddingVertical: 16,
     paddingHorizontal: 16,
@@ -231,9 +245,23 @@ const styles = StyleSheet.create({
     borderBottomColor: '#3a3a3a',
   },
   headerTitle: {
+    flex: 1,
     fontSize: 24,
     fontWeight: 'bold',
     color: '#ffffff',
+  },
+  historyButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#333',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#444',
+  },
+  historyButtonText: {
+    fontSize: 14,
+    color: '#5eb3ff',
+    fontWeight: '600',
   },
   searchContainer: {
     padding: 16,
