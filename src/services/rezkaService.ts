@@ -163,17 +163,61 @@ export class RezkaService {
   }
 
   /**
-   * Получает потоки для конкретной серии/фильма.
-   * Вместо AJAX-вызова — фетчит HTML страницу эпизода и парсит из неё "streams".
-   *
+   * Получает потоки через AJAX-эндпоинт rezka с явным translator_id.
+   * Для сериала: POST /ajax/get_cdn_series/  action=get_stream
+   * Для фильма:  POST /ajax/get_cdn_movie/   action=get_movie
+   */
+  private static async getStreamsViaAjax(
+    movieId: string,
+    translationId: string,
+    season?: string,
+    episode?: string,
+  ): Promise<StreamInfo> {
+    const isSeries = !!(season && episode);
+    const endpoint = isSeries ? '/ajax/get_cdn_series/' : '/ajax/get_cdn_movie/';
+
+    const params = new URLSearchParams();
+    params.append('id', movieId);
+    params.append('translator_id', translationId);
+    if (isSeries) {
+      params.append('season', season!);
+      params.append('episode', episode!);
+      params.append('action', 'get_stream');
+    } else {
+      params.append('action', 'get_movie');
+    }
+
+    const baseUrl = Platform.OS === 'web' ? PROXY_URL : REZKA_URL;
+    const url = `${baseUrl}${endpoint}`;
+
+    console.log('[getStreamsViaAjax] POST', url, 'id:', movieId, 'translator_id:', translationId);
+
+    const response = await axiosInstance.post(url, params.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': REZKA_URL,
+      },
+    });
+
+    const data = response.data;
+    if (!data?.success || !data?.url) {
+      throw new Error(`AJAX вернул неуспешный ответ: ${JSON.stringify(data)}`);
+    }
+
+    console.log('[getStreamsViaAjax] Got streams via AJAX');
+    return parseStreamInfo(data.url);
+  }
+
+  /**
+   * Получает потоки через HTML-парсинг страницы эпизода.
    * URL-паттерн:
    *   Фильм:   {movieBase}/{translatorSlug}.html  (или просто movieUrl)
    *   Сезон:   {movieBase}/{translatorSlug}/{season}-season.html
    *   Эпизод:  {movieBase}/{translatorSlug}/{season}-season/{episode}-episode.html
    */
-  static async getAvailableStreams(
+  private static async getStreamsViaHtml(
     movieUrl: string,
-    translationId: string,
     translatorSlug: string | undefined,
     season?: string,
     episode?: string,
@@ -182,7 +226,6 @@ export class RezkaService {
     const slug = translatorSlug;
 
     let pageUrl: string;
-
     if (slug && season && episode) {
       pageUrl = `${movieBase}/${slug}/${season}-season/${episode}-episode.html`;
     } else if (slug && season) {
@@ -190,31 +233,52 @@ export class RezkaService {
     } else if (slug) {
       pageUrl = `${movieBase}/${slug}.html`;
     } else {
-      // Нет slug — просто используем базовую страницу (streams для первого эпизода)
       pageUrl = movieUrl;
     }
 
-    console.log('[getAvailableStreams] Fetching:', pageUrl);
+    console.log('[getStreamsViaHtml] Fetching:', pageUrl);
 
     const response = await axiosInstance.get(toProxyUrl(pageUrl), {
       headers: {'Referer': REZKA_URL},
     });
 
-    const html = response.data;
-    const streams = extractStreamsFromHtml(html);
-
+    const streams = extractStreamsFromHtml(response.data);
     if (!streams) {
-      console.error('[getAvailableStreams] streams not found in HTML');
-      console.error('[getAvailableStreams] page URL was:', pageUrl);
+      console.error('[getStreamsViaHtml] streams not found, URL was:', pageUrl);
       throw new Error('Не удалось найти потоки на странице. Возможно, контент недоступен.');
     }
 
-    console.log('[getAvailableStreams] streams found, length:', streams.length);
+    console.log('[getStreamsViaHtml] streams found, length:', streams.length);
     return parseStreamInfo(streams);
+  }
+
+  /**
+   * Получает потоки для конкретной серии/фильма.
+   * Сначала пробует AJAX с явным translator_id (надёжный способ учесть выбранный перевод),
+   * при неудаче — HTML-парсинг страницы эпизода по slug-URL.
+   */
+  static async getAvailableStreams(
+    movieUrl: string,
+    movieId: string,
+    translationId: string,
+    translatorSlug: string | undefined,
+    season?: string,
+    episode?: string,
+  ): Promise<StreamInfo> {
+    if (movieId && translationId) {
+      try {
+        return await this.getStreamsViaAjax(movieId, translationId, season, episode);
+      } catch (ajaxErr) {
+        console.warn('[getAvailableStreams] AJAX failed, falling back to HTML:', ajaxErr);
+      }
+    }
+
+    return await this.getStreamsViaHtml(movieUrl, translatorSlug, season, episode);
   }
 
   static async getVideoUrlWithRetry(
     movieUrl: string,
+    movieId: string,
     translationId: string,
     translatorSlug: string | undefined,
     season?: string,
@@ -229,6 +293,7 @@ export class RezkaService {
       try {
         const streamInfo = await this.getAvailableStreams(
           movieUrl,
+          movieId,
           translationId,
           translatorSlug,
           season,
