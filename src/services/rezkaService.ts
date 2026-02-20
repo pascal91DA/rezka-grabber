@@ -30,7 +30,7 @@ function toProxyUrl(url: string): string {
  * Извлекает значение "streams" из HTML страницы rezka.ag.
  * Строка вида: sof.tv.initCDNSeriesEvents(..., {"streams":"...","..."})
  */
-function extractStreamsFromHtml(html: string): string | null {
+export function extractStreamsFromHtml(html: string): string | null {
   const match = html.match(/"streams"\s*:\s*"((?:[^"\\]|\\.)*)"/);
   if (!match) return null;
   try {
@@ -46,7 +46,7 @@ function extractStreamsFromHtml(html: string): string | null {
  * Из ссылок вида href=".../{translatorId}-{slug}/{season}-season.html"
  * Возвращает map: translatorId -> "translatorId-slug"
  */
-function parseTranslatorSlugs(html: string): Record<string, string> {
+export function parseTranslatorSlugs(html: string): Record<string, string> {
   const slugs: Record<string, string> = {};
   const regex = /href="[^"]*\/(\d+-([\w-]+))\/\d+-season/g;
   let match;
