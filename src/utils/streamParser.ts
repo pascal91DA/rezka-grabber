@@ -69,6 +69,13 @@ function decodeUrl(encoded: string): string {
     return encoded;
   }
 
+  // Если строка уже в формате [quality]url (не закодирована) - возвращаем как есть
+  // Например: [720p]https://cdn.example.com/file.mp4:hls:manifest.m3u8,[1080p]https://...
+  if (/^\[[^\]]+\]https?:\/\//.test(encoded.trim())) {
+    console.log('[decodeUrl] Already decoded format detected, skipping decode');
+    return encoded.trim();
+  }
+
   let result = encoded;
 
   // Шаг 1: Удаляем мусорные блоки //_// + trash
