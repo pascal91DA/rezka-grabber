@@ -55,6 +55,7 @@ export function parseTranslatorSlugs(html: string): Record<string, string> {
     const id = fullSlug.split('-')[0]; // "56"
     slugs[id] = fullSlug;
   }
+  console.log('[parseTranslatorSlugs] result:', JSON.stringify(slugs));
   return slugs;
 }
 
@@ -118,7 +119,21 @@ export class RezkaService {
       }
     }
 
-    // Если только один перевод — его slug берём из любой ссылки
+    // Если translators-list отсутствует (один перевод без UI выбора) —
+    // восстанавливаем translator_id из initCDNSeriesEvents/initCDNMovieEvents
+    if (translations.length === 0) {
+      const initMatch = html.match(/initCDN(?:Series|Movie)Events\s*\(\s*\d+\s*,\s*(\d+)/);
+      const translatorId = initMatch?.[1] ?? Object.keys(slugMap)[0];
+      if (translatorId) {
+        const slug = slugMap[translatorId];
+        const ozMatch = html.match(/озвучке\s+([^<"]+)/i);
+        const title = ozMatch?.[1]?.trim() || slug?.split('-').slice(1).join('-') || `Перевод ${translatorId}`;
+        console.log('[getMovieData] single translator fallback: id=%s slug=%s title=%s', translatorId, slug, title);
+        translations.push({ id: translatorId, title, slug });
+      }
+    }
+
+    // Если список нашли, но slug не определился — берём из slugMap
     if (translations.length === 1 && !translations[0].slug) {
       const firstSlug = Object.values(slugMap)[0];
       if (firstSlug) translations[0].slug = firstSlug;
@@ -236,7 +251,7 @@ export class RezkaService {
       pageUrl = movieUrl;
     }
 
-    console.log('[getStreamsViaHtml] Fetching:', pageUrl);
+    console.log('[getStreamsViaHtml] slug:', slug, 'season:', season, 'episode:', episode, '→ URL:', pageUrl);
 
     const response = await axiosInstance.get(toProxyUrl(pageUrl), {
       headers: {'Referer': REZKA_URL},
