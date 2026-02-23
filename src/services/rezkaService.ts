@@ -1,8 +1,8 @@
 import axios from 'axios';
 import {Platform} from 'react-native';
 import {Movie} from '../types/Movie';
-import {parseStreamInfo, applyUrlFixes} from '../utils/streamParser';
-import type {StreamInfo} from '../types/Stream';
+import {parseStreamInfo, parseSubtitles, applyUrlFixes} from '../utils/streamParser';
+import type {StreamInfo, SubtitleTrack} from '../types/Stream';
 
 const REZKA_URL = 'https://rezka.ag';
 const PROXY_URL = 'http://localhost:3001/proxy';
@@ -221,7 +221,16 @@ export class RezkaService {
     }
 
     console.log('[getStreamsViaAjax] Got streams via AJAX');
-    return parseStreamInfo(data.url);
+    const streamInfo = parseStreamInfo(data.url);
+    const subtitles = parseSubtitles(data.subtitle);
+    // subtitle_lns содержит маппинг {"Русский":"ru","English":"en",...}
+    const lns: Record<string, string> = typeof data.subtitle_lns === 'object' && data.subtitle_lns ? data.subtitle_lns : {};
+    subtitles.forEach(s => {
+      if (lns[s.title]) s.language = lns[s.title];
+    });
+    streamInfo.subtitles = subtitles;
+    console.log('[getStreamsViaAjax] Subtitles:', subtitles.length);
+    return streamInfo;
   }
 
   /**
@@ -300,9 +309,9 @@ export class RezkaService {
     episode?: string,
     maxRetries: number = 3,
     onProgress?: (attempt: number, maxAttempts: number, quality: string | null) => void
-  ): Promise<{ url: string; quality: string; attempts: number }> {
+  ): Promise<{ url: string; quality: string; attempts: number; subtitles: SubtitleTrack[] }> {
     const qualityPriority = ['1080p Ultra', '1080p', '720p', '480p', '360p', 'unknown'];
-    let bestResult: { url: string; quality: string; attempts: number } | null = null;
+    let bestResult: { url: string; quality: string; attempts: number; subtitles: SubtitleTrack[] } | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -332,6 +341,7 @@ export class RezkaService {
               url: applyUrlFixes(currentBest.url),
               quality: currentQuality,
               attempts: attempt,
+              subtitles: streamInfo.subtitles || [],
             };
             console.log(`[getVideoUrlWithRetry] New best: ${currentQuality}`);
           }

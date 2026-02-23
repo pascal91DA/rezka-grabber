@@ -1,4 +1,4 @@
-import type { StreamInfo, StreamQuality } from '../types/Stream';
+import type { StreamInfo, StreamQuality, SubtitleTrack } from '../types/Stream';
 
 /**
  * Base64 декодирование для React Native (atob не доступен)
@@ -165,6 +165,21 @@ export function parseStreamInfo(rawUrl: string): StreamInfo {
     streams,
     selectedStream,
   };
+}
+
+/**
+ * Парсит строку субтитров из ответа rezka.
+ * Формат: "[Русский]https://...[English]https://..."
+ */
+export function parseSubtitles(subtitleStr: string | false | undefined | null): SubtitleTrack[] {
+  if (!subtitleStr) return [];
+  const tracks: SubtitleTrack[] = [];
+  const regex = /\[([^\]]+)\](https?:\/\/[^\s,\[]+)/g;
+  let match;
+  while ((match = regex.exec(subtitleStr)) !== null) {
+    tracks.push({ title: match[1].trim(), url: match[2].trim() });
+  }
+  return tracks;
 }
 
 /**

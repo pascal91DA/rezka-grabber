@@ -1,11 +1,35 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View} from 'react-native';
-import Video, {OnProgressData, VideoRef} from 'react-native-video';
+import {ActivityIndicator, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, useWindowDimensions} from 'react-native';
+import Video, {OnProgressData, VideoRef, ViewType} from 'react-native-video';
+import {parseVtt, getCurrentCue} from '../utils/vttParser';
 import {Movie} from '../types/Movie';
 import {ResumeParams} from '../types/navigation';
 import {Episode, MovieData, RezkaService, Season, Translation} from '../services/rezkaService';
 import {HistoryService} from '../services/historyService';
 import {activateKeepAwakeAsync, deactivateKeepAwake} from "expo-keep-awake";
+import {useNavigation} from '@react-navigation/native';
+import type {SubtitleTrack} from '../types/Stream';
+
+function isSubtitleTranslation(translationTitle: string | undefined): boolean {
+  return !!translationTitle?.toLowerCase().includes('субтитр');
+}
+
+function resolveSubtitleIndex(
+  tracks: SubtitleTrack[],
+  savedTitle: string | null,
+  translationTitle: string | undefined,
+): number | null {
+  if (tracks.length === 0) return null;
+  if (isSubtitleTranslation(translationTitle)) return 0;
+  return restoreSubtitleIndex(tracks, savedTitle);
+}
+
+function restoreSubtitleIndex(tracks: SubtitleTrack[], savedTitle: string | null): number | null {
+  if (!savedTitle || tracks.length === 0) return null;
+  const idx = tracks.findIndex(s => s.title === savedTitle);
+  return idx >= 0 ? idx : null;
+}
+
 
 interface PlayerScreenProps {
   route: {
@@ -18,6 +42,9 @@ interface PlayerScreenProps {
 
 export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const {movie, resume} = route.params;
+  const navigation = useNavigation();
+  const {width, height} = useWindowDimensions();
+  const isLandscape = width > height;
   const [loading, setLoading] = useState(true);
   const [movieData, setMovieData] = useState<MovieData | null>(null);
   const [selectedTranslation, setSelectedTranslation] = useState<Translation | null>(null);
@@ -31,11 +58,16 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const [autoPlay, setAutoPlay] = useState(true);
   const [paused, setPaused] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
+  const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
+  const lastSubtitleTitle = useRef<string | null>(null);
 
-  // Ref для видеоплеера
   const videoRef = useRef<VideoRef>(null);
-  // Флаг что был в fullscreen перед переключением серии
-  const wasInFullscreen = useRef(false);
+  const vttCuesRef = useRef<ReturnType<typeof parseVtt>>([]);
+  const currentTimeRef = useRef(0);
+  const [subtitleText, setSubtitleText] = useState<string | null>(null);
+  // Флаг перехвата нативного fullscreen
+  const interceptingNativeFullscreen = useRef(false);
   // Ref для отслеживания, что мы уже обрабатываем переход к следующей серии
   const isLoadingNextEpisode = useRef(false);
   // Ref для отслеживания, что идёт первоначальная загрузка с resume
@@ -46,6 +78,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     season?: Season;
     url: string;
     quality: string;
+    subtitles: SubtitleTrack[];
   } | null>(null);
   // Счётчик retry при ошибке воспроизведения
   const retryCount = useRef(0);
@@ -59,11 +92,39 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
   useEffect(() => {
     activateKeepAwakeAsync().then(r => console.log("activateKeepAwakeAsync", r));
-
     return () => {
       deactivateKeepAwake().then(r => console.log("deactivateKeepAwake", r));
+      StatusBar.setHidden(false);
     };
   }, []);
+
+  // Прячем/показываем header при входе/выходе из fullscreen
+  useEffect(() => {
+    navigation.setOptions({headerShown: !isFullscreen});
+  }, [isFullscreen, navigation]);
+
+  // Загружаем VTT при смене выбранного субтитра
+  useEffect(() => {
+    vttCuesRef.current = [];
+    setSubtitleText(null);
+
+    if (selectedSubtitleIndex === null || !subtitles[selectedSubtitleIndex]) return;
+
+    const url = subtitles[selectedSubtitleIndex].url;
+    console.log('[Subtitles] Loading VTT:', url);
+
+    fetch(url)
+      .then(r => r.text())
+      .then(text => {
+        const cues = parseVtt(text);
+        console.log('[Subtitles] Parsed cues:', cues.length);
+        vttCuesRef.current = cues;
+      })
+      .catch(e => {
+        console.error('[Subtitles] Failed to load VTT:', e);
+      });
+  }, [selectedSubtitleIndex, subtitles]);
+
 
   useEffect(() => {
     loadMovieData();
@@ -128,6 +189,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         season: next.season,
         url: result.url,
         quality: result.quality,
+        subtitles: result.subtitles,
       };
 
       console.log('[Preload] Preloaded successfully:', next.episode.title);
@@ -147,18 +209,6 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     switchingEpisode.current = true;
     isLoadingNextEpisode.current = true;
 
-    console.log('[playNextEpisode] isFullscreen:', isFullscreen);
-
-    // Выходим из fullscreen
-    if (isFullscreen && videoRef.current) {
-      wasInFullscreen.current = true;
-      console.log('[playNextEpisode] Dismissing fullscreen');
-      videoRef.current.dismissFullscreenPlayer();
-    }
-
-    // Задержка для выхода из fullscreen
-    await new Promise(resolve => setTimeout(resolve, 300));
-
     const preloaded = preloadedNextEpisode.current;
     const hasPreloaded = preloaded &&
       preloaded.episode.id === next.episode.id &&
@@ -171,6 +221,8 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       setSelectedEpisode(next.episode);
       setVideoUrl(preloaded.url);
       setVideoQuality(preloaded.quality);
+      setSubtitles(preloaded.subtitles);
+      setSelectedSubtitleIndex(resolveSubtitleIndex(preloaded.subtitles, lastSubtitleTitle.current, selectedTranslation?.title));
       videoLoaded.current = false;
 
       HistoryService.saveLastWatch({
@@ -209,6 +261,8 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
         setVideoUrl(result.url);
         setVideoQuality(result.quality);
+        setSubtitles(result.subtitles);
+        setSelectedSubtitleIndex(resolveSubtitleIndex(result.subtitles, lastSubtitleTitle.current, selectedTranslation?.title));
         videoLoaded.current = false;
         setLoadingStatus('');
 
@@ -233,7 +287,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       isLoadingNextEpisode.current = false;
       switchingEpisode.current = false;
     }, 500);
-  }, [getNextEpisode, loadingVideo, movie, selectedTranslation, selectedSeason, isFullscreen]);
+  }, [getNextEpisode, loadingVideo, movie, selectedTranslation, selectedSeason]);
 
   // Обработчик загрузки видео
   const handleLoad = useCallback((data: { duration: number }) => {
@@ -242,22 +296,16 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     videoLoaded.current = true;
     retryCount.current = 0;
     preloadNextEpisode();
-
-    // Восстанавливаем fullscreen если был
-    if (wasInFullscreen.current && videoRef.current) {
-      console.log('[Player] Restoring fullscreen');
-      setTimeout(() => {
-        videoRef.current?.presentFullscreenPlayer();
-        wasInFullscreen.current = false;
-      }, 500);
-    }
   }, [preloadNextEpisode]);
 
   // Обработчик прогресса
   const handleProgress = useCallback((data: OnProgressData) => {
+    currentTimeRef.current = data.currentTime;
+    if (vttCuesRef.current.length > 0) {
+      setSubtitleText(getCurrentCue(vttCuesRef.current, data.currentTime));
+    }
     const remaining = videoDuration.current - data.currentTime;
 
-    // Когда до конца меньше 1 секунды
     if (videoDuration.current > 0 && remaining < 1 && remaining >= 0 && !switchingEpisode.current) {
       if (autoPlay && movieData?.episodes && movieData.episodes.length > 0) {
         console.log('[Player] Near end, switching to next episode');
@@ -300,6 +348,32 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       setError('Ошибка воспроизведения видео');
     }
   }, [movie.url, selectedTranslation?.id, selectedSeason?.id, selectedEpisode?.id]);
+
+  // Перехватываем нативный fullscreen и заменяем своим
+  const handleFullscreenPresent = useCallback(() => {
+    interceptingNativeFullscreen.current = true;
+    videoRef.current?.dismissFullscreenPlayer();
+    // Если уже в fake fullscreen — нативная кнопка работает как выход
+    setIsFullscreen(prev => {
+      const entering = !prev;
+      StatusBar.setHidden(entering, 'fade');
+      return entering;
+    });
+  }, []);
+
+  const handleFullscreenDismiss = useCallback(() => {
+    if (interceptingNativeFullscreen.current) {
+      interceptingNativeFullscreen.current = false;
+      return;
+    }
+    setIsFullscreen(false);
+    StatusBar.setHidden(false, 'fade');
+  }, []);
+
+  const handleExitFullscreen = useCallback(() => {
+    setIsFullscreen(false);
+    StatusBar.setHidden(false, 'fade');
+  }, []);
 
   // Обновляем выбранную серию при смене сезона
   useEffect(() => {
@@ -428,6 +502,8 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
       setVideoUrl(result.url);
       setVideoQuality(result.quality);
+      setSubtitles(result.subtitles);
+      setSelectedSubtitleIndex(resolveSubtitleIndex(result.subtitles, lastSubtitleTitle.current, selectedTranslation?.title));
       setPaused(false);
       setLoadingStatus('');
 
@@ -476,51 +552,41 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   }
 
   return (
-    <ScrollView style={styles.scrollContainer}>
-      <View style={styles.content}>
-        {/* Блок с ошибкой */}
-        {error && (
-          <View style={styles.errorBanner}>
-            <View style={styles.errorContent}>
-              <Text style={styles.errorTitle}>Ошибка</Text>
-              <Text style={styles.errorMessage}>{error}</Text>
-              <TouchableOpacity
-                style={styles.errorCloseButton}
-                onPress={() => setError(null)}
-              >
-                <Text style={styles.errorCloseButtonText}>
-                  Закрыть и попробовать другую серию
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* Видеоплеер */}
+    <View style={[styles.rootContainer, isLandscape && !isFullscreen && styles.rootContainerLandscape]}>
+      {/* Видеоплеер / заглушка */}
+      <View style={isFullscreen ? styles.videoWrapperFullscreen : isLandscape ? styles.videoWrapperLandscape : styles.videoWrapper}>
         {videoUrl ? (
-          <View style={styles.videoContainer}>
-            <Video
-              ref={videoRef}
-              source={{uri: videoUrl}}
-              style={styles.video}
-              controls={true}
-              resizeMode="contain"
-              paused={paused}
-              onLoad={handleLoad}
-              onProgress={handleProgress}
-              onEnd={handleEnd}
-              onError={handleError}
-              onFullscreenPlayerWillPresent={() => setIsFullscreen(true)}
-              onFullscreenPlayerWillDismiss={() => setIsFullscreen(false)}
-            />
-            {videoQuality && (
-              <View style={styles.qualityBadge}>
-                <Text style={styles.qualityBadgeText}>{videoQuality}</Text>
+          <>
+            <View style={styles.videoContainer}>
+              <Video
+                ref={videoRef}
+                source={{uri: videoUrl}}
+                style={styles.video}
+                controls={true}
+                resizeMode="contain"
+                paused={paused}
+                viewType={ViewType.TEXTURE}
+                onLoad={handleLoad}
+                onProgress={handleProgress}
+                onEnd={handleEnd}
+                onError={handleError}
+                onFullscreenPlayerWillPresent={handleFullscreenPresent}
+                onFullscreenPlayerWillDismiss={handleFullscreenDismiss}
+              />
+              {videoQuality && !isFullscreen && (
+                <View style={styles.qualityBadge}>
+                  <Text style={styles.qualityBadgeText}>{videoQuality}</Text>
+                </View>
+              )}
+            </View>
+            {subtitleText ? (
+              <View style={styles.subtitleOverlay} pointerEvents="none">
+                <Text style={styles.subtitleText}>{subtitleText}</Text>
               </View>
-            )}
-          </View>
+            ) : null}
+          </>
         ) : (
-          <View style={styles.videoPlaceholder}>
+          <View style={styles.videoInnerPlaceholder}>
             {loadingVideo ? (
               <>
                 <ActivityIndicator size="large" color="#5eb3ff"/>
@@ -536,166 +602,336 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
             )}
           </View>
         )}
+      </View>
 
-        <Text style={styles.title}>{movie.title}</Text>
-
-        {/* Селектор переводов */}
-        {movieData.translations.length > 0 && (
-          <View style={styles.selectorContainer}>
-            <Text style={styles.selectorLabel}>Перевод:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {movieData.translations.map((translation) => (
+      {/* Прокручиваемый контент */}
+      <ScrollView style={[styles.scrollContainer, isLandscape && !isFullscreen && styles.scrollContainerLandscape]}>
+        <View style={styles.content}>
+          {/* Блок с ошибкой */}
+          {error && (
+            <View style={styles.errorBanner}>
+              <View style={styles.errorContent}>
+                <Text style={styles.errorTitle}>Ошибка</Text>
+                <Text style={styles.errorMessage}>{error}</Text>
                 <TouchableOpacity
-                  key={translation.id}
-                  style={[
-                    styles.selectorButton,
-                    selectedTranslation?.id === translation.id && styles.selectorButtonActive,
-                  ]}
-                  onPress={() => setSelectedTranslation(translation)}
+                  style={styles.errorCloseButton}
+                  onPress={() => setError(null)}
                 >
-                  <Text
-                    style={[
-                      styles.selectorButtonText,
-                      selectedTranslation?.id === translation.id && styles.selectorButtonTextActive,
-                    ]}
-                  >
-                    {translation.title}
+                  <Text style={styles.errorCloseButtonText}>
+                    Закрыть и попробовать другую серию
                   </Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
+              </View>
+            </View>
+          )}
 
-        {/* Селектор сезонов */}
-        {movieData.seasons && movieData.seasons.length > 0 && (
-          <View style={styles.selectorContainer}>
-            <Text style={styles.selectorLabel}>Сезон:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {movieData.seasons.map((season) => (
+          <Text style={styles.title}>{movie.title}</Text>
+
+          {/* Селектор субтитров */}
+          {subtitles.length > 0 && (
+            <View style={styles.selectorContainer}>
+              <Text style={styles.selectorLabel}>Субтитры:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <TouchableOpacity
-                  key={season.id}
                   style={[
                     styles.selectorButton,
-                    selectedSeason?.id === season.id && styles.selectorButtonActive,
+                    selectedSubtitleIndex === null && styles.selectorButtonActive,
                   ]}
-                  onPress={() => setSelectedSeason(season)}
+                  onPress={() => { setSelectedSubtitleIndex(null); lastSubtitleTitle.current = null; }}
                 >
                   <Text
                     style={[
                       styles.selectorButtonText,
-                      selectedSeason?.id === season.id && styles.selectorButtonTextActive,
+                      selectedSubtitleIndex === null && styles.selectorButtonTextActive,
                     ]}
                   >
-                    {season.title}
+                    Выкл
                   </Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Селектор серий */}
-        {filteredEpisodes.length > 0 && (
-          <View style={styles.selectorContainer}>
-            <Text style={styles.selectorLabel}>Серия:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {filteredEpisodes.map((episode) => (
-                <TouchableOpacity
-                  key={`${episode.seasonId}-${episode.id}`}
-                  style={[
-                    styles.selectorButton,
-                    selectedEpisode?.id === episode.id &&
-                    selectedEpisode?.seasonId === episode.seasonId &&
-                    styles.selectorButtonActive,
-                  ]}
-                  onPress={() => setSelectedEpisode(episode)}
-                >
-                  <Text
+                {subtitles.map((sub, index) => (
+                  <TouchableOpacity
+                    key={index}
                     style={[
-                      styles.selectorButtonText,
+                      styles.selectorButton,
+                      selectedSubtitleIndex === index && styles.selectorButtonActive,
+                    ]}
+                    onPress={() => { setSelectedSubtitleIndex(index); lastSubtitleTitle.current = sub.title; }}
+                  >
+                    <Text
+                      style={[
+                        styles.selectorButtonText,
+                        selectedSubtitleIndex === index && styles.selectorButtonTextActive,
+                      ]}
+                    >
+                      {sub.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Селектор переводов */}
+          {movieData.translations.length > 0 && (
+            <View style={styles.selectorContainer}>
+              <Text style={styles.selectorLabel}>Перевод:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {movieData.translations.map((translation) => (
+                  <TouchableOpacity
+                    key={translation.id}
+                    style={[
+                      styles.selectorButton,
+                      selectedTranslation?.id === translation.id && styles.selectorButtonActive,
+                    ]}
+                    onPress={() => setSelectedTranslation(translation)}
+                  >
+                    <Text
+                      style={[
+                        styles.selectorButtonText,
+                        selectedTranslation?.id === translation.id && styles.selectorButtonTextActive,
+                      ]}
+                    >
+                      {translation.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Селектор сезонов */}
+          {movieData.seasons && movieData.seasons.length > 0 && (
+            <View style={styles.selectorContainer}>
+              <Text style={styles.selectorLabel}>Сезон:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {movieData.seasons.map((season) => (
+                  <TouchableOpacity
+                    key={season.id}
+                    style={[
+                      styles.selectorButton,
+                      selectedSeason?.id === season.id && styles.selectorButtonActive,
+                    ]}
+                    onPress={() => setSelectedSeason(season)}
+                  >
+                    <Text
+                      style={[
+                        styles.selectorButtonText,
+                        selectedSeason?.id === season.id && styles.selectorButtonTextActive,
+                      ]}
+                    >
+                      {season.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Селектор серий */}
+          {filteredEpisodes.length > 0 && (
+            <View style={styles.selectorContainer}>
+              <Text style={styles.selectorLabel}>Серия:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {filteredEpisodes.map((episode) => (
+                  <TouchableOpacity
+                    key={`${episode.seasonId}-${episode.id}`}
+                    style={[
+                      styles.selectorButton,
                       selectedEpisode?.id === episode.id &&
                       selectedEpisode?.seasonId === episode.seasonId &&
-                      styles.selectorButtonTextActive,
+                      styles.selectorButtonActive,
                     ]}
+                    onPress={() => setSelectedEpisode(episode)}
                   >
-                    {episode.title}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Информация о выборе */}
-        <View style={styles.infoContainer}>
-          <Text style={styles.infoText}>
-            Выбрано:{'\n'}
-            {selectedTranslation ? `Перевод: ${selectedTranslation.title}\n` : ''}
-            {selectedSeason ? `Сезон: ${selectedSeason.title}\n` : ''}
-            {selectedEpisode ? `Серия: ${selectedEpisode.title}` : ''}
-          </Text>
-        </View>
-
-        {/* Кнопка загрузки видео */}
-        <TouchableOpacity
-          style={[
-            styles.getUrlButton,
-            (loadingVideo || (movieData?.translations && movieData.translations.length > 0 && !selectedTranslation)) && styles.getUrlButtonDisabled,
-          ]}
-          onPress={loadVideoUrl}
-          disabled={loadingVideo || (movieData?.translations && movieData.translations.length > 0 && !selectedTranslation)}
-        >
-          {loadingVideo ? (
-            <View style={styles.buttonContent}>
-              <ActivityIndicator color="#fff"/>
-              <Text style={[styles.getUrlButtonText, {marginLeft: 8}]}>
-                Загрузка...
-              </Text>
+                    <Text
+                      style={[
+                        styles.selectorButtonText,
+                        selectedEpisode?.id === episode.id &&
+                        selectedEpisode?.seasonId === episode.seasonId &&
+                        styles.selectorButtonTextActive,
+                      ]}
+                    >
+                      {episode.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
-          ) : (
-            <Text style={styles.getUrlButtonText}>
-              {videoUrl ? 'Перезагрузить видео' : 'Загрузить видео'}
-            </Text>
           )}
-        </TouchableOpacity>
 
-        {/* Автовоспроизведение (только для сериалов) */}
-        {movieData.episodes && movieData.episodes.length > 0 && (
-          <View style={styles.autoPlayContainer}>
-            <View style={styles.autoPlayRow}>
-              <Text style={styles.autoPlayLabel}>Автовоспроизведение</Text>
-              <Switch
-                value={autoPlay}
-                onValueChange={setAutoPlay}
-                trackColor={{false: '#444', true: '#007AFF'}}
-                thumbColor={autoPlay ? '#fff' : '#888'}
-              />
-            </View>
-            {autoPlay && getNextEpisode() && (
-              <Text style={styles.nextEpisodeText}>
-                Следующая: {getNextEpisode()?.episode.title}
-                {getNextEpisode()?.season && ` (${getNextEpisode()?.season?.title})`}
+          {/* Информация о выборе */}
+          <View style={styles.infoContainer}>
+            <Text style={styles.infoText}>
+              Выбрано:{'\n'}
+              {selectedTranslation ? `Перевод: ${selectedTranslation.title}\n` : ''}
+              {selectedSeason ? `Сезон: ${selectedSeason.title}\n` : ''}
+              {selectedEpisode ? `Серия: ${selectedEpisode.title}` : ''}
+            </Text>
+          </View>
+
+          {/* Кнопка загрузки видео */}
+          <TouchableOpacity
+            style={[
+              styles.getUrlButton,
+              (loadingVideo || (movieData?.translations && movieData.translations.length > 0 && !selectedTranslation)) && styles.getUrlButtonDisabled,
+            ]}
+            onPress={loadVideoUrl}
+            disabled={loadingVideo || (movieData?.translations && movieData.translations.length > 0 && !selectedTranslation)}
+          >
+            {loadingVideo ? (
+              <View style={styles.buttonContent}>
+                <ActivityIndicator color="#fff"/>
+                <Text style={[styles.getUrlButtonText, {marginLeft: 8}]}>
+                  Загрузка...
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.getUrlButtonText}>
+                {videoUrl ? 'Перезагрузить видео' : 'Загрузить видео'}
               </Text>
             )}
-          </View>
-        )}
+          </TouchableOpacity>
 
-      </View>
-    </ScrollView>
+          {/* Автовоспроизведение (только для сериалов) */}
+          {movieData.episodes && movieData.episodes.length > 0 && (
+            <View style={styles.autoPlayContainer}>
+              <View style={styles.autoPlayRow}>
+                <Text style={styles.autoPlayLabel}>Автовоспроизведение</Text>
+                <Switch
+                  value={autoPlay}
+                  onValueChange={setAutoPlay}
+                  trackColor={{false: '#444', true: '#007AFF'}}
+                  thumbColor={autoPlay ? '#fff' : '#888'}
+                />
+              </View>
+              {autoPlay && getNextEpisode() && (
+                <Text style={styles.nextEpisodeText}>
+                  Следующая: {getNextEpisode()?.episode.title}
+                  {getNextEpisode()?.season && ` (${getNextEpisode()?.season?.title})`}
+                </Text>
+              )}
+            </View>
+          )}
+
+        </View>
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollContainer: {
+  rootContainer: {
     flex: 1,
     backgroundColor: '#1a1a1a',
+  },
+  rootContainerLandscape: {
+    flexDirection: 'row',
   },
   container: {
     flex: 1,
     backgroundColor: '#1a1a1a',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  videoWrapper: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: '#000',
+  },
+  videoWrapperLandscape: {
+    width: '30%',
+    backgroundColor: '#000',
+  },
+  scrollContainerLandscape: {
+    flex: 1,
+  },
+  videoWrapperFullscreen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+    elevation: 1000,
+    backgroundColor: '#000',
+  },
+  videoContainer: {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+  },
+  video: {
+    width: '100%',
+    height: '100%',
+  },
+  subtitleOverlay: {
+    position: 'absolute',
+    bottom: 40,
+    left: 8,
+    right: 8,
+    alignItems: 'center',
+    zIndex: 999,
+    elevation: 999,
+  },
+  subtitleText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  exitFullscreenBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1001,
+    elevation: 1001,
+  },
+  exitFullscreenText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  qualityBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 122, 255, 0.9)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+  },
+  qualityBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  videoInnerPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  videoPlaceholderText: {
+    color: '#888',
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginTop: 8,
+  },
+  scrollContainer: {
+    flex: 1,
   },
   content: {
     padding: 16,
@@ -734,48 +970,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
-  },
-  videoContainer: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    backgroundColor: '#000',
-    borderRadius: 8,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
-  video: {
-    width: '100%',
-    height: '100%',
-  },
-  qualityBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0, 122, 255, 0.9)',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-  },
-  qualityBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  videoPlaceholder: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    marginBottom: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  videoPlaceholderText: {
-    color: '#888',
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 24,
   },
   title: {
     fontSize: 24,
