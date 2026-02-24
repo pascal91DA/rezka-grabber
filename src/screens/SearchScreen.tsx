@@ -20,7 +20,7 @@ import {Movie} from '../types/Movie';
 import {RootStackParamList} from '../types/navigation';
 
 export const SearchScreen: React.FC = () => {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Main'>>();
   const [query, setQuery] = useState('');
   const [movies, setMovies] = useState<Movie[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -142,11 +142,6 @@ export const SearchScreen: React.FC = () => {
       <StatusBar barStyle="light-content"/>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Поиск фильмов</Text>
-        <TouchableOpacity
-          style={styles.historyButton}
-          onPress={() => navigation.navigate('History')}>
-          <Text style={styles.historyButtonText}>История</Text>
-        </TouchableOpacity>
       </View>
       <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
@@ -249,19 +244,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#ffffff',
-  },
-  historyButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: '#333',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#444',
-  },
-  historyButtonText: {
-    fontSize: 14,
-    color: '#5eb3ff',
-    fontWeight: '600',
   },
   searchContainer: {
     padding: 16,

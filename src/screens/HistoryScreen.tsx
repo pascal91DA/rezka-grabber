@@ -16,7 +16,7 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {HistoryService, HistoryEntry} from '../services/historyService';
 import {RootStackParamList} from '../types/navigation';
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Main'>;
 
 export const HistoryScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -134,11 +134,6 @@ export const HistoryScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}>
-          <Text style={styles.backButtonText}>‹ Назад</Text>
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>История просмотров</Text>
         {history.length > 0 ? (
           <TouchableOpacity
@@ -221,22 +216,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#3a3a3a',
   },
-  backButton: {
-    minWidth: 70,
-  },
-  backButtonText: {
-    fontSize: 17,
-    color: '#5eb3ff',
-  },
   headerTitle: {
     flex: 1,
     fontSize: 18,
     fontWeight: 'bold',
     color: '#ffffff',
-    textAlign: 'center',
   },
   clearAllButton: {
-    minWidth: 70,
     alignItems: 'flex-end',
   },
   clearAllButtonText: {

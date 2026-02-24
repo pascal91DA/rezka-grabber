@@ -1,3 +1,4 @@
+import { NavigatorScreenParams } from '@react-navigation/native';
 import { Movie } from './Movie';
 
 export interface ResumeParams {
@@ -6,9 +7,13 @@ export interface ResumeParams {
   episodeId?: string;
 }
 
-export type RootStackParamList = {
+export type MainTabParamList = {
   Search: undefined;
   History: undefined;
+};
+
+export type RootStackParamList = {
+  Main: NavigatorScreenParams<MainTabParamList> | undefined;
   Player: {
     movie: Movie;
     resume?: ResumeParams;
