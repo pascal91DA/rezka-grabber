@@ -7,6 +7,7 @@ import {ResumeParams} from '../types/navigation';
 import {Episode, MovieData, RezkaService, Season, Translation} from '../services/rezkaService';
 import {HistoryService} from '../services/historyService';
 import {activateKeepAwakeAsync, deactivateKeepAwake} from "expo-keep-awake";
+import * as NavigationBar from 'expo-navigation-bar';
 import {useNavigation} from '@react-navigation/native';
 import type {SubtitleTrack} from '../types/Stream';
 
@@ -95,6 +96,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     return () => {
       deactivateKeepAwake().then(r => console.log("deactivateKeepAwake", r));
       StatusBar.setHidden(false);
+      NavigationBar.setVisibilityAsync('visible');
     };
   }, []);
 
@@ -357,6 +359,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     setIsFullscreen(prev => {
       const entering = !prev;
       StatusBar.setHidden(entering, 'fade');
+      NavigationBar.setVisibilityAsync(entering ? 'hidden' : 'visible');
       return entering;
     });
   }, []);
@@ -368,11 +371,13 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     }
     setIsFullscreen(false);
     StatusBar.setHidden(false, 'fade');
+    NavigationBar.setVisibilityAsync('visible');
   }, []);
 
   const handleExitFullscreen = useCallback(() => {
     setIsFullscreen(false);
     StatusBar.setHidden(false, 'fade');
+    NavigationBar.setVisibilityAsync('visible');
   }, []);
 
   // Обновляем выбранную серию при смене сезона

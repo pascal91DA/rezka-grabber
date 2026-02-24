@@ -1,4 +1,4 @@
 cd android
-gradlew assembleRelease
+./gradlew assembleRelease
 echo \android\app\build\outputs\apk\release\
 pause
