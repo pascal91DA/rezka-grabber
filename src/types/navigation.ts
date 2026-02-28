@@ -9,6 +9,7 @@ export interface ResumeParams {
 
 export type MainTabParamList = {
   Search: undefined;
+  NewReleases: undefined;
   History: undefined;
 };
 

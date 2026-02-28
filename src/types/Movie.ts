@@ -7,4 +7,5 @@ export interface Movie {
   rating?: string;
   url: string;
   description?: string;
+  contentType?: string;
 }

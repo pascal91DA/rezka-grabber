@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchScreen } from './src/screens/SearchScreen';
+import { NewReleasesScreen } from './src/screens/NewReleasesScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
 import { PlayerScreen } from './src/screens/PlayerScreen';
 import { DebugWebViewScreen } from './src/screens/DebugWebViewScreen';
@@ -35,15 +36,20 @@ function MainTabs() {
           let iconName;
           if (route.name === 'Search') {
             iconName = focused ? 'search' : 'search-outline';
+          } else if (route.name === 'NewReleases') {
+            iconName = focused ? 'flame' : 'flame-outline';
           } else if (route.name === 'History') {
             iconName = focused ? 'time' : 'time-outline';
           }
           return <Ionicons name={iconName} size={size} color={color} />;
         },
-        tabBarLabel: route.name === 'Search' ? 'Поиск' : 'История',
+        tabBarLabel:
+          route.name === 'Search' ? 'Поиск' :
+          route.name === 'NewReleases' ? 'Новинки' : 'История',
       })}
     >
       <Tab.Screen name="Search" component={SearchScreen} />
+      <Tab.Screen name="NewReleases" component={NewReleasesScreen} />
       <Tab.Screen name="History" component={HistoryScreen} />
     </Tab.Navigator>
   );

@@ -83,6 +83,61 @@ export interface MovieData {
   episodes?: Episode[];
 }
 
+/**
+ * Парсит страницу каталога rezka.ag и возвращает список фильмов/сериалов.
+ */
+export function parseCatalogPage(html: string): Movie[] {
+  const movies: Movie[] = [];
+
+  // Находим все блоки элементов каталога по data-url
+  const blockRegex = /<div[^>]+class="b-content__inline_item"[^>]+data-url="([^"]*)"[^>]*>/gi;
+  const blockStarts: Array<{url: string; index: number}> = [];
+  let m;
+  while ((m = blockRegex.exec(html)) !== null) {
+    blockStarts.push({url: m[1], index: m.index + m[0].length});
+  }
+
+  for (let i = 0; i < blockStarts.length; i++) {
+    const {url: dataUrl, index: startIdx} = blockStarts[i];
+    const endIdx = i + 1 < blockStarts.length ? blockStarts[i + 1].index : startIdx + 2000;
+    const blockHtml = html.slice(startIdx, endIdx);
+
+    // Постер
+    const posterMatch = blockHtml.match(/<img[^>]+src="((?:https?:)?\/\/[^"]+)"[^>]*>/i);
+    let poster = posterMatch?.[1];
+    if (poster?.startsWith('//')) poster = 'https:' + poster;
+
+    // Название — берём из первой ссылки в блоке ссылки
+    const titleMatch = blockHtml.match(/<div[^>]+class="b-content__inline_item-2"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i)
+      ?? blockHtml.match(/<a[^>]+href="[^"]*"[^>]*>\s*([^<\n]{2,80}?)\s*<\/a>/i);
+    const title = titleMatch?.[1]?.trim();
+
+    // Рейтинг
+    const ratingMatch = blockHtml.match(/b-category-bestrating[^>]*>\s*([0-9.]+)/i);
+    const rating = ratingMatch?.[1];
+
+    // Тип контента из <i class="entity">
+    const entityMatch = blockHtml.match(/<i[^>]+class="entity"[^>]*>([^<]+)<\/i>/i);
+    const contentType = entityMatch?.[1]?.trim() || undefined;
+
+    // Описание и год из .misc
+    const miscMatch = blockHtml.match(/class="misc"[^>]*>([\s\S]*?)<\/div>/i);
+    const miscRaw = miscMatch?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const description = miscRaw || undefined;
+    const yearMatch = miscRaw?.match(/(\d{4})/);
+    const year = yearMatch?.[1];
+
+    const fullUrl = dataUrl.startsWith('http') ? dataUrl : `${REZKA_URL}${dataUrl}`;
+    const id = dataUrl.split('/').filter(Boolean).pop() || `movie-${movies.length}`;
+
+    if (dataUrl && title) {
+      movies.push({id, title, year, rating, url: fullUrl, poster, description, contentType});
+    }
+  }
+
+  return movies;
+}
+
 export class RezkaService {
   static async getMovieData(url: string): Promise<MovieData> {
     const response = await axiosInstance.get(toProxyUrl(url), {
@@ -376,6 +431,16 @@ export class RezkaService {
     }
 
     throw new Error('Не удалось получить ссылку на видео');
+  }
+
+  static async getNewReleases(basePath: string, filter: string, page: number = 1): Promise<Movie[]> {
+    const url = page === 1
+      ? `${REZKA_URL}/${basePath}/?filter=${filter}`
+      : `${REZKA_URL}/${basePath}/page/${page}/?filter=${filter}`;
+    const response = await axiosInstance.get(url, {
+      headers: {'Referer': REZKA_URL},
+    });
+    return parseCatalogPage(response.data);
   }
 
   static async searchMovies(query: string): Promise<Movie[]> {
