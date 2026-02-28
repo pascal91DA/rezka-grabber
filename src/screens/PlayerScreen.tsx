@@ -9,6 +9,7 @@ import {HistoryService} from '../services/historyService';
 import {activateKeepAwakeAsync, deactivateKeepAwake} from "expo-keep-awake";
 import * as NavigationBar from 'expo-navigation-bar';
 import {useNavigation} from '@react-navigation/native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {SubtitleTrack} from '../types/Stream';
 
 function isSubtitleTranslation(translationTitle: string | undefined): boolean {
@@ -45,6 +46,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const {movie, resume} = route.params;
   const navigation = useNavigation();
   const {width, height} = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isLandscape = width > height;
   const [loading, setLoading] = useState(true);
   const [movieData, setMovieData] = useState<MovieData | null>(null);
@@ -557,7 +559,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   }
 
   return (
-    <View style={[styles.rootContainer, isLandscape && !isFullscreen && styles.rootContainerLandscape]}>
+    <View style={[styles.rootContainer, isLandscape && !isFullscreen && styles.rootContainerLandscape, !isFullscreen && {paddingBottom: insets.bottom}]}>
       {/* Видеоплеер / заглушка */}
       <View style={isFullscreen ? styles.videoWrapperFullscreen : isLandscape ? styles.videoWrapperLandscape : styles.videoWrapper}>
         {videoUrl ? (
@@ -610,7 +612,9 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       </View>
 
       {/* Прокручиваемый контент */}
-      <ScrollView style={[styles.scrollContainer, isLandscape && !isFullscreen && styles.scrollContainerLandscape]}>
+      <ScrollView
+        style={[styles.scrollContainer, isLandscape && !isFullscreen && styles.scrollContainerLandscape]}
+      >
         <View style={styles.content}>
           {/* Блок с ошибкой */}
           {error && (

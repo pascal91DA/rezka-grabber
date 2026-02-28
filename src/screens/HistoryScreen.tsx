@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
+import {useBottomTabBarHeight} from '@react-navigation/bottom-tabs';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {HistoryService, HistoryEntry} from '../services/historyService';
 import {RootStackParamList} from '../types/navigation';
@@ -20,6 +21,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Main'>;
 
 export const HistoryScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
+  const tabBarHeight = useBottomTabBarHeight();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -131,7 +133,7 @@ export const HistoryScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>История просмотров</Text>
@@ -177,9 +179,10 @@ export const HistoryScreen: React.FC = () => {
           data={filtered}
           keyExtractor={item => HistoryService.entryKey(item)}
           renderItem={renderItem}
-          contentContainerStyle={
-            filtered.length === 0 ? styles.emptyList : styles.list
-          }
+          contentContainerStyle={[
+            filtered.length === 0 ? styles.emptyList : styles.list,
+            {paddingBottom: tabBarHeight},
+          ]}
 
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
