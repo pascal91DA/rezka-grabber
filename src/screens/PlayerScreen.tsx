@@ -769,14 +769,16 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
           )}
 
           {/* Информация о выборе */}
-          <View style={styles.infoContainer}>
-            <Text style={styles.infoText}>
-              Выбрано:{'\n'}
-              {selectedTranslation ? `Перевод: ${selectedTranslation.title}\n` : ''}
-              {selectedSeason ? `Сезон: ${selectedSeason.title}\n` : ''}
-              {selectedEpisode ? `Серия: ${selectedEpisode.title}` : ''}
-            </Text>
-          </View>
+          {(selectedTranslation || selectedSeason || selectedEpisode) && (
+            <View style={styles.infoContainer}>
+              <Text style={styles.infoText}>
+                Выбрано:{'\n'}
+                {selectedTranslation ? `Перевод: ${selectedTranslation.title}\n` : ''}
+                {selectedSeason ? `Сезон: ${selectedSeason.title}\n` : ''}
+                {selectedEpisode ? `Серия: ${selectedEpisode.title}` : ''}
+              </Text>
+            </View>
+          )}
 
           {/* Кнопка загрузки видео */}
           <TouchableOpacity
