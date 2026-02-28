@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
+import {useBottomTabBarHeight} from '@react-navigation/bottom-tabs';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {MovieCard} from '../components/MovieCard';
 import {RezkaService} from '../services/rezkaService';
@@ -21,6 +22,7 @@ import {RootStackParamList} from '../types/navigation';
 
 export const SearchScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Main'>>();
+  const tabBarHeight = useBottomTabBarHeight();
   const [query, setQuery] = useState('');
   const [movies, setMovies] = useState<Movie[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -138,7 +140,7 @@ export const SearchScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content"/>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Поиск фильмов</Text>
@@ -207,11 +209,12 @@ export const SearchScreen: React.FC = () => {
         data={query.trim() ? movies : history}
         keyExtractor={(item) => query.trim() ? (item as Movie).id : (item as HistoryEntry).movie.id}
         renderItem={({item}) => <MovieCard movie={query.trim() ? item as Movie : (item as HistoryEntry).movie}/>}
-        contentContainerStyle={
+        contentContainerStyle={[
           (query.trim() ? movies.length === 0 : history.length === 0)
             ? styles.emptyList
-            : styles.list
-        }
+            : styles.list,
+          {paddingBottom: tabBarHeight},
+        ]}
         ListHeaderComponent={
           !query.trim() && history.length > 0 ? (
             <View style={styles.sectionHeader}>
