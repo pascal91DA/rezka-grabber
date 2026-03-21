@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, useWindowDimensions} from 'react-native';
+import {ActivityIndicator, Alert, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, useWindowDimensions} from 'react-native';
 import Video, {OnProgressData, VideoRef, ViewType} from 'react-native-video';
 import {parseVtt, getCurrentCue} from '../utils/vttParser';
 import {Movie} from '../types/Movie';
@@ -11,6 +11,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import {useNavigation} from '@react-navigation/native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {SubtitleTrack} from '../types/Stream';
+import {DownloadService} from '../services/downloadService';
 
 function isSubtitleTranslation(translationTitle: string | undefined): boolean {
   return !!translationTitle?.toLowerCase().includes('субтитр');
@@ -64,6 +65,10 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
   const lastSubtitleTitle = useRef<string | null>(null);
+
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadPercent, setDownloadPercent] = useState(0);
+  const cancelDownloadRef = useRef<(() => void) | null>(null);
 
   const videoRef = useRef<VideoRef>(null);
   const vttCuesRef = useRef<ReturnType<typeof parseVtt>>([]);
@@ -541,6 +546,45 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     }
   };
 
+  const handleDownload = useCallback(async () => {
+    if (!videoUrl) return;
+
+    const titleParts = [movie.title, selectedSeason?.title, selectedEpisode?.title]
+      .filter(Boolean)
+      .join(' - ');
+
+    const selectedSubtitle =
+      selectedSubtitleIndex !== null ? subtitles[selectedSubtitleIndex] : undefined;
+
+    setIsDownloading(true);
+    setDownloadPercent(0);
+
+    try {
+      const cancel = await DownloadService.startDownload({
+        videoUrl,
+        durationSec: videoDuration.current,
+        title: titleParts,
+        subtitleUrl: selectedSubtitle?.url,
+        onProgress: ({percent}) => setDownloadPercent(percent),
+        onComplete: item => {
+          setIsDownloading(false);
+          setDownloadPercent(0);
+          const size = DownloadService.formatFileSize(item.fileSizeBytes);
+          Alert.alert('Готово', `Видео сохранено${size ? ` (${size})` : ''}.\n\nФайл в папке Downloads/rezka-grabber`);
+        },
+        onError: e => {
+          setIsDownloading(false);
+          setDownloadPercent(0);
+          Alert.alert('Ошибка скачивания', e.message);
+        },
+      });
+      cancelDownloadRef.current = cancel;
+    } catch {
+      setIsDownloading(false);
+      Alert.alert('Ошибка', 'Не удалось начать загрузку');
+    }
+  }, [videoUrl, movie.title, selectedSeason, selectedEpisode, selectedSubtitleIndex, subtitles]);
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -802,6 +846,37 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
               </Text>
             )}
           </TouchableOpacity>
+
+          {/* Кнопка скачивания */}
+          {videoUrl && (
+            isDownloading ? (
+              <View style={styles.downloadContainer}>
+                <Text style={styles.downloadLabel}>
+                  Скачивание... {Math.round(downloadPercent)}%
+                </Text>
+                <View style={styles.progressBarTrack}>
+                  <View style={[styles.progressBarFill, {width: `${downloadPercent}%`}]} />
+                </View>
+                <TouchableOpacity
+                  style={styles.cancelDownloadButton}
+                  onPress={() => {
+                    cancelDownloadRef.current?.();
+                    setIsDownloading(false);
+                    setDownloadPercent(0);
+                  }}
+                >
+                  <Text style={styles.cancelDownloadText}>Отменить</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.downloadButton}
+                onPress={handleDownload}
+              >
+                <Text style={styles.downloadButtonText}>⬇ Скачать MP4</Text>
+              </TouchableOpacity>
+            )
+          )}
 
           {/* Автовоспроизведение (только для сериалов) */}
           {movieData.episodes && movieData.episodes.length > 0 && (
@@ -1085,5 +1160,52 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 13,
     color: '#888',
+  },
+  downloadButton: {
+    marginTop: 12,
+    backgroundColor: '#2a2a2a',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#444',
+  },
+  downloadButtonText: {
+    color: '#5eb3ff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  downloadContainer: {
+    marginTop: 12,
+    padding: 16,
+    backgroundColor: '#2a2a2a',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#444',
+    gap: 10,
+  },
+  downloadLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  progressBarTrack: {
+    height: 6,
+    backgroundColor: '#444',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#5eb3ff',
+    borderRadius: 3,
+  },
+  cancelDownloadButton: {
+    alignSelf: 'flex-end',
+  },
+  cancelDownloadText: {
+    color: '#ff6b6b',
+    fontSize: 13,
   },
 });
