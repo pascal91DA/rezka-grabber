@@ -36,8 +36,9 @@
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_VIDEO"
       ],
       "package": "com.pascal91.hdrezkagrabber"
     },
@@ -49,6 +50,14 @@
         "react-native-video",
         {
           "enableNotificationControls": true
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": false,
+          "savePhotosPermission": false,
+          "isAccessMediaLocationEnabled": true
         }
       ]
     ]

@@ -6,7 +6,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { SearchScreen } from './src/screens/SearchScreen';
 import { NewReleasesScreen } from './src/screens/NewReleasesScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
+import { DownloadsScreen } from './src/screens/DownloadsScreen';
 import { PlayerScreen } from './src/screens/PlayerScreen';
+import { OfflinePlayerScreen } from './src/screens/OfflinePlayerScreen';
 import { DebugWebViewScreen } from './src/screens/DebugWebViewScreen';
 
 /**
@@ -40,17 +42,21 @@ function MainTabs() {
             iconName = focused ? 'flame' : 'flame-outline';
           } else if (route.name === 'History') {
             iconName = focused ? 'time' : 'time-outline';
+          } else if (route.name === 'Downloads') {
+            iconName = focused ? 'download' : 'download-outline';
           }
           return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarLabel:
           route.name === 'Search' ? 'Поиск' :
-          route.name === 'NewReleases' ? 'Новинки' : 'История',
+          route.name === 'NewReleases' ? 'Новинки' :
+          route.name === 'History' ? 'История' : 'Загрузки',
       })}
     >
       <Tab.Screen name="Search" component={SearchScreen} />
       <Tab.Screen name="NewReleases" component={NewReleasesScreen} />
       <Tab.Screen name="History" component={HistoryScreen} />
+      <Tab.Screen name="Downloads" component={DownloadsScreen} />
     </Tab.Navigator>
   );
 }
@@ -78,6 +84,14 @@ export default function App() {
               title: 'Плеер',
               headerBackTitle: 'Назад',
             }}
+          />
+          <Stack.Screen
+            name="OfflinePlayer"
+            component={OfflinePlayerScreen}
+            options={({ route }) => ({
+              title: route.params.title,
+              headerBackTitle: 'Назад',
+            })}
           />
           <Stack.Screen
             name="DebugWebView"
