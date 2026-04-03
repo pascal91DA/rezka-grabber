@@ -11,6 +11,7 @@ export type MainTabParamList = {
   Search: undefined;
   NewReleases: undefined;
   History: undefined;
+  Downloads: undefined;
 };
 
 export type RootStackParamList = {
@@ -20,4 +21,9 @@ export type RootStackParamList = {
     resume?: ResumeParams;
   };
   DebugWebView: undefined;
+  OfflinePlayer: {
+    title: string;
+    localM3u8Uri: string;
+    subtitleUri?: string;
+  };
 };

@@ -562,15 +562,13 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     try {
       const cancel = await DownloadService.startDownload({
         videoUrl,
-        durationSec: videoDuration.current,
         title: titleParts,
         subtitleUrl: selectedSubtitle?.url,
         onProgress: ({percent}) => setDownloadPercent(percent),
         onComplete: item => {
           setIsDownloading(false);
           setDownloadPercent(0);
-          const size = DownloadService.formatFileSize(item.fileSizeBytes);
-          Alert.alert('Готово', `Видео сохранено${size ? ` (${size})` : ''}.\n\nФайл в папке Downloads/rezka-grabber`);
+          Alert.alert('Готово', `Видео сохранено (${item.segmentCount} сегментов).\nМожно смотреть offline.`);
         },
         onError: e => {
           setIsDownloading(false);

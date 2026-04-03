@@ -1,22 +1,26 @@
-import {FFmpegKit, ReturnCode} from 'ffmpeg-kit-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import {downloadHls, HlsDownloadProgress} from './hlsDownloader';
 
 export interface DownloadProgress {
   percent: number;
+  downloaded: number;
+  total: number;
 }
 
 export interface DownloadedItem {
   title: string;
-  videoPath: string;
-  subtitlePath?: string;
+  /** file:// URI к локальному M3U8 для воспроизведения */
+  localM3u8Uri: string;
+  /** file:// URI к VTT субтитрам (если были) */
+  subtitleUri?: string;
   downloadedAt: number;
-  fileSizeBytes?: number;
+  segmentCount: number;
 }
 
 const DOWNLOADS_DIR = FileSystem.documentDirectory + 'downloads/';
 
-async function ensureDir(): Promise<void> {
+async function ensureBaseDir(): Promise<void> {
   const info = await FileSystem.getInfoAsync(DOWNLOADS_DIR);
   if (!info.exists) {
     await FileSystem.makeDirectoryAsync(DOWNLOADS_DIR, {intermediates: true});
@@ -28,147 +32,114 @@ function sanitizeFilename(s: string): string {
     .replace(/[^\wа-яёА-ЯЁ\s.\-]/g, '')
     .trim()
     .replace(/\s+/g, '_')
-    .slice(0, 120);
+    .slice(0, 100);
 }
 
 export class DownloadService {
   /**
-   * Скачивает HLS-поток в MP4 через ffmpeg (-c copy, без перекодирования).
-   * Субтитры (VTT) скачиваются отдельно.
+   * Скачивает HLS-поток сегментами в локальную директорию.
    * Возвращает функцию отмены.
    */
   static async startDownload(params: {
     videoUrl: string;
-    durationSec: number;
     title: string;
     subtitleUrl?: string;
     onProgress: (p: DownloadProgress) => void;
     onComplete: (item: DownloadedItem) => void;
     onError: (e: Error) => void;
   }): Promise<() => void> {
-    const {videoUrl, durationSec, title, subtitleUrl, onProgress, onComplete, onError} =
-      params;
+    const {videoUrl, title, subtitleUrl, onProgress, onComplete, onError} = params;
 
-    await ensureDir();
+    await ensureBaseDir();
 
     const safe = sanitizeFilename(title);
-    const videoPath = `${DOWNLOADS_DIR}${safe}.mp4`;
-    const subtitlePath = subtitleUrl ? `${DOWNLOADS_DIR}${safe}.vtt` : undefined;
+    const itemDir = `${DOWNLOADS_DIR}${safe}/`;
+    const subtitleUri = subtitleUrl ? `${itemDir}subtitles.vtt` : undefined;
 
-    // Субтитры — лёгкий текстовый файл, скачиваем сразу
-    if (subtitleUrl && subtitlePath) {
+    const cancelRef = {current: false};
+
+    // Запускаем асинхронно, не ждём завершения здесь
+    (async () => {
       try {
-        await FileSystem.downloadAsync(subtitleUrl, subtitlePath);
-        console.log('[Download] Subtitles saved:', subtitlePath);
-      } catch (e) {
-        console.warn('[Download] Subtitle download failed:', e);
+        // Скачиваем субтитры параллельно с началом загрузки
+        const subtitlePromise = subtitleUrl && subtitleUri
+          ? FileSystem.downloadAsync(subtitleUrl, subtitleUri).catch(e => {
+              console.warn('[Download] Subtitle failed:', e);
+            })
+          : Promise.resolve();
+
+        const result = await downloadHls({
+          m3u8Url: videoUrl,
+          outputDir: itemDir,
+          cancelRef,
+          onProgress: (p: HlsDownloadProgress) => {
+            onProgress({
+              percent: p.percent,
+              downloaded: p.downloaded,
+              total: p.total,
+            });
+          },
+        });
+
+        await subtitlePromise;
+
+        // Запрашиваем доступ к медиатеке (для уведомления пользователя,
+        // сами файлы уже сохранены во внутреннем хранилище)
+        MediaLibrary.requestPermissionsAsync().catch(() => {});
+
+        onComplete({
+          title,
+          localM3u8Uri: result.localM3u8Uri,
+          subtitleUri: subtitleUrl ? subtitleUri : undefined,
+          downloadedAt: Date.now(),
+          segmentCount: result.segmentCount,
+        });
+      } catch (e: unknown) {
+        if (cancelRef.current) return; // тихая отмена
+        const msg = e instanceof Error ? e.message : 'Неизвестная ошибка';
+        if (msg === 'cancelled') return;
+        console.error('[Download] Error:', e);
+        onError(new Error(msg));
       }
-    }
-
-    console.log('[Download] Starting ffmpeg for:', videoUrl);
-
-    // ffmpeg: скачиваем HLS и пишем в MP4 без перекодирования
-    const cmd = `-i "${videoUrl}" -c copy -y "${videoPath}"`;
-
-    let sessionId = -1;
-
-    const session = await FFmpegKit.executeAsync(
-      cmd,
-      async completedSession => {
-        const code = await completedSession.getReturnCode();
-
-        if (ReturnCode.isSuccess(code)) {
-          console.log('[Download] ffmpeg succeeded:', videoPath);
-
-          // Копируем в MediaLibrary (папка Downloads)
-          try {
-            const {status} = await MediaLibrary.requestPermissionsAsync();
-            if (status === 'granted') {
-              const asset = await MediaLibrary.createAssetAsync(videoPath);
-              await MediaLibrary.createAlbumAsync('rezka-grabber', asset, false);
-              console.log('[Download] Saved to MediaLibrary');
-            }
-          } catch (e) {
-            console.warn('[Download] MediaLibrary copy failed:', e);
-          }
-
-          const info = await FileSystem.getInfoAsync(videoPath);
-          onComplete({
-            title,
-            videoPath,
-            subtitlePath,
-            downloadedAt: Date.now(),
-            fileSizeBytes: info.exists && 'size' in info ? info.size : undefined,
-          });
-        } else if (ReturnCode.isCancel(code)) {
-          FileSystem.deleteAsync(videoPath, {idempotent: true}).catch(() => {});
-        } else {
-          FileSystem.deleteAsync(videoPath, {idempotent: true}).catch(() => {});
-          const logs = await completedSession.getAllLogsAsString();
-          console.error('[Download] ffmpeg failed. Logs:', logs?.slice(-500));
-          onError(new Error('Ошибка ffmpeg при конвертации видео'));
-        }
-      },
-      undefined, // log callback
-      statistics => {
-        // statistics.getTime() — позиция в миллисекундах
-        if (durationSec > 0 && statistics.getTime() > 0) {
-          const percent = Math.min(
-            (statistics.getTime() / 1000 / durationSec) * 100,
-            99,
-          );
-          onProgress({percent});
-        }
-      },
-    );
-
-    sessionId = session.getSessionId();
+    })();
 
     return () => {
-      console.log('[Download] Cancelling session', sessionId);
-      FFmpegKit.cancel(sessionId);
+      cancelRef.current = true;
     };
   }
 
   static async listDownloads(): Promise<DownloadedItem[]> {
     try {
-      await ensureDir();
-      const files = await FileSystem.readDirectoryAsync(DOWNLOADS_DIR);
-      const mp4Files = files.filter(f => f.endsWith('.mp4'));
+      await ensureBaseDir();
+      const dirs = await FileSystem.readDirectoryAsync(DOWNLOADS_DIR);
+      const items: DownloadedItem[] = [];
 
-      return await Promise.all(
-        mp4Files.map(async f => {
-          const videoPath = `${DOWNLOADS_DIR}${f}`;
-          const subtitleFile = f.replace('.mp4', '.vtt');
-          const info = await FileSystem.getInfoAsync(videoPath);
-          return {
-            title: f.replace('.mp4', '').replace(/_/g, ' '),
-            videoPath,
-            subtitlePath: files.includes(subtitleFile)
-              ? `${DOWNLOADS_DIR}${subtitleFile}`
-              : undefined,
-            downloadedAt: 0,
-            fileSizeBytes: info.exists && 'size' in info ? info.size : undefined,
-          } as DownloadedItem;
-        }),
-      );
+      for (const dir of dirs) {
+        const m3u8Uri = `${DOWNLOADS_DIR}${dir}/video.m3u8`;
+        const info = await FileSystem.getInfoAsync(m3u8Uri);
+        if (!info.exists) continue;
+
+        const subtitleUri = `${DOWNLOADS_DIR}${dir}/subtitles.vtt`;
+        const subInfo = await FileSystem.getInfoAsync(subtitleUri);
+
+        items.push({
+          title: dir.replace(/_/g, ' '),
+          localM3u8Uri: m3u8Uri,
+          subtitleUri: subInfo.exists ? subtitleUri : undefined,
+          downloadedAt: 0,
+          segmentCount: 0,
+        });
+      }
+
+      return items;
     } catch {
       return [];
     }
   }
 
-  static async deleteDownload(videoPath: string): Promise<void> {
-    await FileSystem.deleteAsync(videoPath, {idempotent: true});
-    await FileSystem.deleteAsync(videoPath.replace('.mp4', '.vtt'), {
-      idempotent: true,
-    });
-  }
-
-  static formatFileSize(bytes?: number): string {
-    if (!bytes) return '';
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    if (bytes < 1024 * 1024 * 1024)
-      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  static async deleteDownload(localM3u8Uri: string): Promise<void> {
+    // Удаляем всю папку с сегментами
+    const dir = localM3u8Uri.substring(0, localM3u8Uri.lastIndexOf('/') + 1);
+    await FileSystem.deleteAsync(dir, {idempotent: true});
   }
 }
