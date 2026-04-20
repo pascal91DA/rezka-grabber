@@ -332,6 +332,51 @@ export class RezkaService {
   }
 
   /**
+   * Загружает список сезонов и серий для конкретного перевода через AJAX.
+   * POST /ajax/get_cdn_series/ action=get_episodes возвращает HTML-фрагменты
+   * с элементами сезонов и серий именно для переданного translator_id.
+   */
+  static async getSeasonsAndEpisodes(
+    movieId: string,
+    translationId: string,
+  ): Promise<{seasons: Season[]; episodes: Episode[]}> {
+    const baseUrl = Platform.OS === 'web' ? PROXY_URL : REZKA_URL;
+    const url = `${baseUrl}/ajax/get_cdn_series/`;
+
+    const params = new URLSearchParams();
+    params.append('id', movieId);
+    params.append('translator_id', translationId);
+    params.append('action', 'get_episodes');
+
+    const response = await axiosInstance.post(url, params.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': REZKA_URL,
+      },
+    });
+
+    const data = response.data;
+    const html: string = (data?.seasons ?? '') + (data?.episodes ?? '');
+
+    const seasons: Season[] = [];
+    const seasonRegex = /<(?:a|li)[^>]*data-tab_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
+    let m;
+    while ((m = seasonRegex.exec(html)) !== null) {
+      seasons.push({id: m[1], title: m[2].trim()});
+    }
+
+    const episodes: Episode[] = [];
+    const episodeRegex = /<(?:a|li)[^>]*data-season_id="(\d+)"[^>]*data-episode_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
+    while ((m = episodeRegex.exec(html)) !== null) {
+      episodes.push({id: m[2], title: m[3].trim(), seasonId: m[1]});
+    }
+
+    console.log(`[getSeasonsAndEpisodes] translation=${translationId} → ${seasons.length} seasons, ${episodes.length} episodes`);
+    return {seasons, episodes};
+  }
+
+  /**
    * Получает потоки для конкретной серии/фильма.
    * Сначала пробует AJAX с явным translator_id (надёжный способ учесть выбранный перевод),
    * при неудаче — HTML-парсинг страницы эпизода по slug-URL.
@@ -346,13 +391,32 @@ export class RezkaService {
   ): Promise<StreamInfo> {
     if (movieId && translationId) {
       try {
-        return await this.getStreamsViaAjax(movieId, translationId, season, episode);
+        const ajaxResult = await this.getStreamsViaAjax(movieId, translationId, season, episode);
+        const ajaxUrl = ajaxResult.selectedStream?.url ?? '';
+        if (!this.isExternalPlayerUrl(ajaxUrl)) {
+          return ajaxResult;
+        }
+        console.warn('[getAvailableStreams] AJAX returned external player URL, falling back to HTML');
       } catch (ajaxErr) {
         console.warn('[getAvailableStreams] AJAX failed, falling back to HTML:', ajaxErr);
       }
     }
 
     return await this.getStreamsViaHtml(movieUrl, translatorSlug, season, episode);
+  }
+
+  static isExternalPlayerUrl(url: string): boolean {
+    return /\/(iframe|embed)(\/|$)/.test(url) && !/\.(m3u8|mp4|ts|webm)(\?|:|$)/i.test(url);
+  }
+
+  private static isDirectVideoUrl(url: string): boolean {
+    // Прямые видео-потоки: MP4, HLS, DASH и т.п.
+    if (/\.(mp4|m3u8|ts|webm|mpd)(\?|:|$)/i.test(url)) return true;
+    if (url.includes(':hls:') || url.includes('/manifest') || url.includes('/playlist')) return true;
+    // iframe/embed — внешний плеер, не прямой поток
+    if (/\/(iframe|embed)(\/|$)/.test(url)) return false;
+    // Неизвестный формат — пробуем играть
+    return true;
   }
 
   static async getVideoUrlWithRetry(
