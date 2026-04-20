@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { TimerProvider } from './src/context/TimerContext';
 import { SearchScreen } from './src/screens/SearchScreen';
 import { NewReleasesScreen } from './src/screens/NewReleasesScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
@@ -71,6 +72,7 @@ function MainTabs() {
 export default function App() {
   return (
     <SafeAreaProvider>
+      <TimerProvider>
       <NavigationContainer theme={DarkTheme}>
         <Stack.Navigator
           screenOptions={{
@@ -117,6 +119,7 @@ export default function App() {
           />
         </Stack.Navigator>
       </NavigationContainer>
+      </TimerProvider>
     </SafeAreaProvider>
   );
 }
