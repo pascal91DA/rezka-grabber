@@ -19,6 +19,8 @@ import {RezkaService} from '../services/rezkaService';
 import {HistoryService, HistoryEntry, LastWatch} from '../services/historyService';
 import {Movie} from '../types/Movie';
 import {RootStackParamList} from '../types/navigation';
+import {BlacklistService} from '../services/blacklistService';
+import {WatchedService} from '../services/watchedService';
 
 export const SearchScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Main'>>();
@@ -88,7 +90,9 @@ export const SearchScreen: React.FC = () => {
 
     try {
       const results = await RezkaService.searchMovies(searchQuery);
-      setMovies(results);
+      const [bl, wl] = await Promise.all([BlacklistService.getIds(), WatchedService.getIds()]);
+      const hidden = new Set([...bl, ...wl]);
+      setMovies(results.filter(m => !hidden.has(m.id)));
 
       if (results.length === 0) {
         setError('Фильмы не найдены');

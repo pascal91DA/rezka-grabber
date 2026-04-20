@@ -12,6 +12,7 @@ export type MainTabParamList = {
   NewReleases: undefined;
   History: undefined;
   Downloads: undefined;
+  Settings: undefined;
 };
 
 export type RootStackParamList = {
@@ -26,4 +27,6 @@ export type RootStackParamList = {
     localM3u8Uri: string;
     subtitleUri?: string;
   };
+  Blacklist: undefined;
+  Watched: undefined;
 };

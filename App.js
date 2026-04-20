@@ -7,6 +7,9 @@ import { SearchScreen } from './src/screens/SearchScreen';
 import { NewReleasesScreen } from './src/screens/NewReleasesScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
 import { DownloadsScreen } from './src/screens/DownloadsScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
+import { BlacklistScreen } from './src/screens/BlacklistScreen';
+import { WatchedScreen } from './src/screens/WatchedScreen';
 import { PlayerScreen } from './src/screens/PlayerScreen';
 import { OfflinePlayerScreen } from './src/screens/OfflinePlayerScreen';
 import { DebugWebViewScreen } from './src/screens/DebugWebViewScreen';
@@ -44,19 +47,23 @@ function MainTabs() {
             iconName = focused ? 'time' : 'time-outline';
           } else if (route.name === 'Downloads') {
             iconName = focused ? 'download' : 'download-outline';
+          } else if (route.name === 'Settings') {
+            iconName = focused ? 'settings' : 'settings-outline';
           }
           return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarLabel:
           route.name === 'Search' ? 'Поиск' :
           route.name === 'NewReleases' ? 'Новинки' :
-          route.name === 'History' ? 'История' : 'Загрузки',
+          route.name === 'History' ? 'История' :
+          route.name === 'Downloads' ? 'Загрузки' : 'Настройки',
       })}
     >
       <Tab.Screen name="Search" component={SearchScreen} />
       <Tab.Screen name="NewReleases" component={NewReleasesScreen} />
       <Tab.Screen name="History" component={HistoryScreen} />
       <Tab.Screen name="Downloads" component={DownloadsScreen} />
+      <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }
@@ -96,10 +103,17 @@ export default function App() {
           <Stack.Screen
             name="DebugWebView"
             component={DebugWebViewScreen}
-            options={{
-              title: 'Отладка WebView',
-              headerBackTitle: 'Назад',
-            }}
+            options={{ title: 'Отладка WebView', headerBackTitle: 'Назад' }}
+          />
+          <Stack.Screen
+            name="Blacklist"
+            component={BlacklistScreen}
+            options={{ title: 'Чёрный список', headerBackTitle: 'Назад' }}
+          />
+          <Stack.Screen
+            name="Watched"
+            component={WatchedScreen}
+            options={{ title: 'Просмотрено', headerBackTitle: 'Назад' }}
           />
         </Stack.Navigator>
       </NavigationContainer>
