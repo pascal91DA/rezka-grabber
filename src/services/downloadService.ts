@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
-import {downloadHls, HlsDownloadProgress} from './hlsDownloader';
+import {downloadHls, HlsDownloadProgress, countExistingSegments} from './hlsDownloader';
 
 export interface DownloadProgress {
   percent: number;
@@ -95,9 +95,9 @@ export class DownloadService {
           segmentCount: result.segmentCount,
         });
       } catch (e: unknown) {
-        if (cancelRef.current) return; // тихая отмена
         const msg = e instanceof Error ? e.message : 'Неизвестная ошибка';
-        if (msg === 'cancelled') return;
+        // При отмене или cancelled — молча выходим, папка остаётся для докачки
+        if (cancelRef.current || msg === 'cancelled') return;
         console.error('[Download] Error:', e);
         onError(new Error(msg));
       }
@@ -138,8 +138,21 @@ export class DownloadService {
   }
 
   static async deleteDownload(localM3u8Uri: string): Promise<void> {
-    // Удаляем всю папку с сегментами
     const dir = localM3u8Uri.substring(0, localM3u8Uri.lastIndexOf('/') + 1);
     await FileSystem.deleteAsync(dir, {idempotent: true});
+  }
+
+  /**
+   * Проверяет, есть ли незавершённая загрузка для данного заголовка.
+   * Возвращает количество уже скачанных сегментов (0 если нет).
+   */
+  static async getPartialDownloadCount(title: string): Promise<number> {
+    const safe = sanitizeFilename(title);
+    const itemDir = `${DOWNLOADS_DIR}${safe}/`;
+    const m3u8Uri = `${itemDir}video.m3u8`;
+    // Если video.m3u8 уже есть — загрузка завершена
+    const doneInfo = await FileSystem.getInfoAsync(m3u8Uri);
+    if (doneInfo.exists) return 0;
+    return countExistingSegments(itemDir);
   }
 }

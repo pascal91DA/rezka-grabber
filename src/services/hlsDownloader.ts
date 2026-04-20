@@ -1,6 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
-// Количество сегментов, качаемых параллельно
 const PARALLEL_DOWNLOADS = 4;
 
 function resolveUrl(base: string, path: string): string {
@@ -26,18 +25,12 @@ async function fetchText(url: string): Promise<string> {
   return res.text();
 }
 
-/**
- * Получает media-плейлист (с сегментами).
- * Если переданный URL — master-плейлист (несколько качеств),
- * рекурсивно берёт вариант с максимальным BANDWIDTH.
- */
 async function resolveMediaPlaylist(url: string, depth = 0): Promise<MediaPlaylist> {
   if (depth > 3) throw new Error('Слишком много редиректов M3U8');
 
   const text = await fetchText(url);
 
   if (text.includes('#EXT-X-STREAM-INF')) {
-    // Master playlist — выбираем лучшее качество
     let bestBandwidth = -1;
     let bestUrl = '';
     const lines = text.split('\n');
@@ -56,7 +49,6 @@ async function resolveMediaPlaylist(url: string, depth = 0): Promise<MediaPlayli
     throw new Error('Не удалось найти поток в master-плейлисте');
   }
 
-  // Media playlist
   const lines = text.split('\n');
   const segments: string[] = [];
   for (const line of lines) {
@@ -79,19 +71,34 @@ export interface HlsDownloadProgress {
 }
 
 export interface HlsDownloadResult {
-  localM3u8Uri: string; // file:// URI для react-native-video
+  localM3u8Uri: string;
   segmentCount: number;
   dirUri: string;
 }
 
 /**
- * Скачивает HLS-поток в локальную директорию.
- * Переписывает M3U8 так, чтобы сегменты ссылались на локальные file:// пути.
- * Возвращает URI к локальному M3U8 — его можно передать в react-native-video.
+ * Возвращает количество уже скачанных сегментов в директории.
+ * Используется для определения наличия незавершённой загрузки.
+ */
+export async function countExistingSegments(outputDir: string): Promise<number> {
+  try {
+    const info = await FileSystem.getInfoAsync(outputDir);
+    if (!info.exists) return 0;
+    const files = await FileSystem.readDirectoryAsync(outputDir);
+    return files.filter(f => f.endsWith('.ts')).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Скачивает HLS-поток сегментами.
+ * Если сегмент уже существует на диске — пропускает его (поддержка докачки).
+ * При отмене папка НЕ удаляется, чтобы можно было продолжить позже.
  */
 export async function downloadHls(params: {
   m3u8Url: string;
-  outputDir: string; // должен заканчиваться на /
+  outputDir: string;
   onProgress: (p: HlsDownloadProgress) => void;
   cancelRef: {current: boolean};
 }): Promise<HlsDownloadResult> {
@@ -100,32 +107,24 @@ export async function downloadHls(params: {
   const playlist = await resolveMediaPlaylist(m3u8Url);
   const {segments, text: playlistText} = playlist;
 
-  // Создаём папку для сегментов
   await FileSystem.makeDirectoryAsync(outputDir, {intermediates: true});
 
-  const segmentLocalNames: string[] = segments.map(
+  const segmentLocalNames = segments.map(
     (_, i) => `seg_${String(i).padStart(5, '0')}.ts`,
   );
 
+  // Считаем уже скачанные сегменты — они будут пропущены
   let downloaded = 0;
+  const existsFlags: boolean[] = await Promise.all(
+    segmentLocalNames.map(async name => {
+      const info = await FileSystem.getInfoAsync(`${outputDir}${name}`);
+      return info.exists;
+    }),
+  );
+  downloaded = existsFlags.filter(Boolean).length;
 
-  // Скачиваем сегменты пачками по PARALLEL_DOWNLOADS
-  for (let i = 0; i < segments.length; i += PARALLEL_DOWNLOADS) {
-    if (cancelRef.current) {
-      // Удаляем частично скачанное
-      FileSystem.deleteAsync(outputDir, {idempotent: true}).catch(() => {});
-      throw new Error('cancelled');
-    }
-
-    const batch = segments.slice(i, i + PARALLEL_DOWNLOADS);
-    await Promise.all(
-      batch.map((segUrl, j) => {
-        const localPath = `${outputDir}${segmentLocalNames[i + j]}`;
-        return FileSystem.downloadAsync(segUrl, localPath);
-      }),
-    );
-
-    downloaded = Math.min(i + PARALLEL_DOWNLOADS, segments.length);
+  // Сразу показываем стартовый прогресс (если есть докачка)
+  if (downloaded > 0) {
     onProgress({
       downloaded,
       total: segments.length,
@@ -133,26 +132,50 @@ export async function downloadHls(params: {
     });
   }
 
-  // Переписываем M3U8: заменяем URL сегментов на локальные file:// пути
+  // Качаем пачками, пропуская уже существующие
+  for (let i = 0; i < segments.length; i += PARALLEL_DOWNLOADS) {
+    if (cancelRef.current) {
+      // Папку НЕ удаляем — пользователь сможет продолжить
+      throw new Error('cancelled');
+    }
+
+    const batch = segments.slice(i, i + PARALLEL_DOWNLOADS);
+    await Promise.all(
+      batch.map(async (segUrl, j) => {
+        const idx = i + j;
+        const localPath = `${outputDir}${segmentLocalNames[idx]}`;
+
+        if (existsFlags[idx]) {
+          // Уже скачан — пропускаем
+          return;
+        }
+
+        await FileSystem.downloadAsync(segUrl, localPath);
+        existsFlags[idx] = true;
+        downloaded += 1;
+        onProgress({
+          downloaded,
+          total: segments.length,
+          percent: (downloaded / segments.length) * 100,
+        });
+      }),
+    );
+  }
+
+  // Пишем локальный M3U8 с file:// путями
   let segIdx = 0;
   const localLines = playlistText.split('\n').map(line => {
     const t = line.trim();
     if (t && !t.startsWith('#')) {
-      const localUri = `${outputDir}${segmentLocalNames[segIdx++]}`;
-      return localUri;
+      return `${outputDir}${segmentLocalNames[segIdx++]}`;
     }
     return line;
   });
 
-  const localM3u8Text = localLines.join('\n');
   const localM3u8Uri = `${outputDir}video.m3u8`;
-  await FileSystem.writeAsStringAsync(localM3u8Uri, localM3u8Text, {
+  await FileSystem.writeAsStringAsync(localM3u8Uri, localLines.join('\n'), {
     encoding: FileSystem.EncodingType.UTF8,
   });
 
-  return {
-    localM3u8Uri,
-    segmentCount: segments.length,
-    dirUri: outputDir,
-  };
+  return {localM3u8Uri, segmentCount: segments.length, dirUri: outputDir};
 }

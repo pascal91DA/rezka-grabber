@@ -12,6 +12,7 @@ import {useNavigation} from '@react-navigation/native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {SubtitleTrack} from '../types/Stream';
 import {DownloadService} from '../services/downloadService';
+import {WebView} from 'react-native-webview';
 
 function isSubtitleTranslation(translationTitle: string | undefined): boolean {
   return !!translationTitle?.toLowerCase().includes('субтитр');
@@ -68,7 +69,10 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(0);
+  const [partialSegments, setPartialSegments] = useState(0);
   const cancelDownloadRef = useRef<(() => void) | null>(null);
+  // URL внешнего iframe-плеера, который нужно разрешить через WebView
+  const [externalIframeUrl, setExternalIframeUrl] = useState<string | null>(null);
 
   const videoRef = useRef<VideoRef>(null);
   const vttCuesRef = useRef<ReturnType<typeof parseVtt>>([]);
@@ -138,6 +142,15 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   useEffect(() => {
     loadMovieData();
   }, []);
+
+  // Проверяем наличие незавершённой загрузки при смене серии/фильма
+  useEffect(() => {
+    if (!movie.title) return;
+    const titleParts = [movie.title, selectedSeason?.title, selectedEpisode?.title]
+      .filter(Boolean)
+      .join(' - ');
+    DownloadService.getPartialDownloadCount(titleParts).then(setPartialSegments);
+  }, [movie.title, selectedSeason?.id, selectedEpisode?.id]);
 
   // Фильтруем серии по выбранному сезону
   const filteredEpisodes = movieData?.episodes?.filter(
@@ -406,6 +419,31 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const prevTranslation = useRef(selectedTranslation?.id);
   const prevSeason = useRef(selectedSeason?.id);
   const prevEpisode = useRef(selectedEpisode?.id);
+  const prevTranslationForSeasons = useRef<string | undefined>(undefined);
+
+  // Перезагружаем сезоны/серии при смене перевода (включая первоначальный)
+  useEffect(() => {
+    if (!movieData?.id || !selectedTranslation || !movieData.seasons) return;
+    if (prevTranslationForSeasons.current === selectedTranslation.id) return;
+
+    const isInitial = prevTranslationForSeasons.current === undefined;
+    prevTranslationForSeasons.current = selectedTranslation.id;
+
+    RezkaService.getSeasonsAndEpisodes(movieData.id, selectedTranslation.id)
+      .then(({seasons, episodes}) => {
+        if (seasons.length === 0 && episodes.length === 0) return;
+        setMovieData(prev => prev ? {
+          ...prev,
+          seasons: seasons.length > 0 ? seasons : prev.seasons,
+          episodes: episodes.length > 0 ? episodes : prev.episodes,
+        } : prev);
+        if (!isInitial) {
+          if (seasons.length > 0) setSelectedSeason(seasons[0]);
+          if (episodes.length > 0) setSelectedEpisode(episodes[0]);
+        }
+      })
+      .catch(err => console.error('[PlayerScreen] Failed to reload seasons:', err));
+  }, [selectedTranslation?.id, movieData?.id]);
 
   useEffect(() => {
     if (isLoadingNextEpisode.current) {
@@ -512,6 +550,15 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         }
       );
 
+      // Если вернулся iframe/embed URL внешнего плеера — разрешаем через WebView
+      if (RezkaService.isExternalPlayerUrl(result.url)) {
+        console.log('[PlayerScreen] External player detected, resolving via WebView:', result.url);
+        setLoadingStatus('Загрузка внешнего плеера...');
+        setExternalIframeUrl(result.url);
+        // loadingVideo остаётся true до тех пор пока WebView не пришлёт реальный URL
+        return;
+      }
+
       setVideoUrl(result.url);
       setVideoQuality(result.quality);
       setSubtitles(result.subtitles);
@@ -546,6 +593,79 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     }
   };
 
+  // JS, который вставляется в WebView внешнего плеера.
+  // Перехватывает fetch/XHR ответы и video-элементы, ищет .m3u8 / .mp4 URL.
+  const externalPlayerInjectedJS = `
+    (function() {
+      function postVideo(url) {
+        if (!url || typeof url !== 'string') return;
+        if (/\\.(m3u8|mp4)(\\?|$|:)/i.test(url) || url.includes(':hls:')) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'videoUrl', url }));
+        }
+      }
+
+      // Перехват fetch + читаем тело ответа
+      const origFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const reqUrl = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+        postVideo(reqUrl);
+        const resp = await origFetch.apply(this, args);
+        try {
+          const clone = resp.clone();
+          clone.text().then(text => {
+            const hits = text.match(/https?:\\/\\/[^"'\\s]+\\.(m3u8|mp4)[^"'\\s]*/gi);
+            if (hits) hits.forEach(postVideo);
+          }).catch(() => {});
+        } catch(e) {}
+        return resp;
+      };
+
+      // Перехват XHR + читаем ответ
+      const origOpen = XMLHttpRequest.prototype.open;
+      const origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url) {
+        this._rurl = url; postVideo(url);
+        return origOpen.apply(this, arguments);
+      };
+      XMLHttpRequest.prototype.send = function() {
+        this.addEventListener('load', function() {
+          try {
+            const hits = this.responseText.match(/https?:\\/\\/[^"'\\s]+\\.(m3u8|mp4)[^"'\\s]*/gi);
+            if (hits) hits.forEach(postVideo);
+          } catch(e) {}
+        });
+        return origSend.apply(this, arguments);
+      };
+
+      // Наблюдаем за <video> и <source>
+      function checkNode(node) {
+        if (!node || !node.tagName) return;
+        if (node.tagName === 'VIDEO' || node.tagName === 'SOURCE') postVideo(node.src || node.getAttribute('src'));
+        if (node.querySelectorAll) node.querySelectorAll('video,source').forEach(el => postVideo(el.src || el.getAttribute('src')));
+      }
+      new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(checkNode)))
+        .observe(document.documentElement, { childList: true, subtree: true });
+
+      // Проверяем уже существующие элементы
+      document.querySelectorAll('video,source').forEach(el => postVideo(el.src || el.getAttribute('src')));
+    })();
+    true;
+  `;
+
+  const handleExternalPlayerMessage = useCallback((event: any) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      if (msg.type === 'videoUrl' && msg.url) {
+        console.log('[ExternalPlayer] Resolved video URL:', msg.url);
+        setExternalIframeUrl(null);
+        setVideoUrl(msg.url);
+        setVideoQuality('external');
+        setLoadingVideo(false);
+        setLoadingStatus('');
+      }
+    } catch {}
+  }, []);
+
   const handleDownload = useCallback(async () => {
     if (!videoUrl) return;
 
@@ -568,11 +688,13 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         onComplete: item => {
           setIsDownloading(false);
           setDownloadPercent(0);
+          setPartialSegments(0);
           Alert.alert('Готово', `Видео сохранено (${item.segmentCount} сегментов).\nМожно смотреть offline.`);
         },
         onError: e => {
           setIsDownloading(false);
           setDownloadPercent(0);
+          DownloadService.getPartialDownloadCount(titleParts).then(setPartialSegments);
           Alert.alert('Ошибка скачивания', e.message);
         },
       });
@@ -602,6 +724,20 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
   return (
     <View style={[styles.rootContainer, isLandscape && !isFullscreen && styles.rootContainerLandscape, !isFullscreen && {paddingBottom: insets.bottom}]}>
+
+      {/* Невидимый WebView для разрешения внешних iframe-плееров */}
+      {externalIframeUrl && (
+        <WebView
+          style={styles.hiddenWebView}
+          source={{uri: externalIframeUrl}}
+          injectedJavaScript={externalPlayerInjectedJS}
+          onMessage={handleExternalPlayerMessage}
+          javaScriptEnabled
+          domStorageEnabled
+          userAgent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        />
+      )}
+
       {/* Видеоплеер / заглушка */}
       <View style={isFullscreen ? styles.videoWrapperFullscreen : isLandscape ? styles.videoWrapperLandscape : styles.videoWrapper}>
         {videoUrl ? (
@@ -850,7 +986,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
             isDownloading ? (
               <View style={styles.downloadContainer}>
                 <Text style={styles.downloadLabel}>
-                  Скачивание... {Math.round(downloadPercent)}%
+                  Скачивание... {downloadPercent.toFixed(2)}%
                 </Text>
                 <View style={styles.progressBarTrack}>
                   <View style={[styles.progressBarFill, {width: `${downloadPercent}%`}]} />
@@ -871,7 +1007,9 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                 style={styles.downloadButton}
                 onPress={handleDownload}
               >
-                <Text style={styles.downloadButtonText}>⬇ Скачать MP4</Text>
+                <Text style={styles.downloadButtonText}>
+                {partialSegments > 0 ? `⬇ Докачать (${partialSegments} сегм. готово)` : '⬇ Скачать'}
+              </Text>
               </TouchableOpacity>
             )
           )}
@@ -1158,6 +1296,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 13,
     color: '#888',
+  },
+  hiddenWebView: {
+    width: 0,
+    height: 0,
+    opacity: 0,
+    position: 'absolute',
   },
   downloadButton: {
     marginTop: 12,
