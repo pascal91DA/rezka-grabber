@@ -2,6 +2,8 @@
 
 A React Native app for searching and watching movies/series from rezka.ag directly on your device.
 
+![App Screen](assets/app_screen.jpg)
+
 ## Features
 
 - Search movies and series by title
