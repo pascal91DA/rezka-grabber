@@ -15,7 +15,9 @@ import {useFocusEffect} from '@react-navigation/native';
 import {MovieGridCard} from '../components/MovieGridCard';
 import {RezkaService} from '../services/rezkaService';
 import {Movie} from '../types/Movie';
-import {Category, CATEGORIES} from '../constants/categories';
+import {ContentFilter, ContentType, CONTENT_FILTERS, CONTENT_TYPES} from '../constants/categories';
+import {BlacklistService} from '../services/blacklistService';
+import {WatchedService} from '../services/watchedService';
 
 const H_PADDING = 8;
 const GAP = 6;
@@ -24,15 +26,17 @@ export const NewReleasesScreen: React.FC = () => {
   const tabBarHeight = useBottomTabBarHeight();
   const {width, height} = useWindowDimensions();
   const numColumns = width > height ? 8 : 4;
-  const [selectedCategory, setSelectedCategory] = useState<Category>(CATEGORIES[0]);
+  const [selectedFilter, setSelectedFilter] = useState<ContentFilter>(CONTENT_FILTERS[0]);
+  const [selectedType, setSelectedType] = useState<ContentType>(CONTENT_TYPES[0]);
   const [movies, setMovies] = useState<Movie[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [blacklistIds, setBlacklistIds] = useState<Set<string>>(new Set());
 
-  const loadMovies = useCallback(async (category: Category, pageNum: number, append: boolean) => {
+  const loadMovies = useCallback(async (basePath: string, filter: string, pageNum: number, append: boolean, ids: Set<string>) => {
     if (append) {
       setLoadingMore(true);
     } else {
@@ -40,11 +44,12 @@ export const NewReleasesScreen: React.FC = () => {
       setError(null);
     }
     try {
-      const results = await RezkaService.getNewReleases(category.basePath, category.filter, pageNum);
+      const results = await RezkaService.getNewReleases(basePath, filter, pageNum);
+      const filtered = results.filter(m => !ids.has(m.id));
       if (append) {
-        setMovies(prev => [...prev, ...results]);
+        setMovies(prev => [...prev, ...filtered]);
       } else {
-        setMovies(results);
+        setMovies(filtered);
       }
       setHasMore(results.length > 0);
     } catch {
@@ -57,14 +62,27 @@ export const NewReleasesScreen: React.FC = () => {
 
   useFocusEffect(
     useCallback(() => {
-      setPage(1);
-      loadMovies(selectedCategory, 1, false);
-    }, [selectedCategory, loadMovies]),
+      BlacklistService.invalidateCache();
+      WatchedService.invalidateCache();
+      Promise.all([BlacklistService.getIds(), WatchedService.getIds()]).then(([bl, wl]) => {
+        const ids = new Set([...bl, ...wl]);
+        setBlacklistIds(ids);
+        setPage(1);
+        loadMovies(selectedType.basePath, selectedFilter.filter, 1, false, ids);
+      });
+    }, [selectedType, selectedFilter, loadMovies]),
   );
 
-  const handleCategorySelect = (category: Category) => {
-    if (category.basePath === selectedCategory.basePath && category.filter === selectedCategory.filter) return;
-    setSelectedCategory(category);
+  const handleFilterSelect = (f: ContentFilter) => {
+    if (f.filter === selectedFilter.filter) return;
+    setSelectedFilter(f);
+    setPage(1);
+    setHasMore(true);
+  };
+
+  const handleTypeSelect = (t: ContentType) => {
+    if (t.basePath === selectedType.basePath) return;
+    setSelectedType(t);
     setPage(1);
     setHasMore(true);
   };
@@ -73,7 +91,12 @@ export const NewReleasesScreen: React.FC = () => {
     if (loadingMore || !hasMore || loading) return;
     const nextPage = page + 1;
     setPage(nextPage);
-    loadMovies(selectedCategory, nextPage, true);
+    loadMovies(selectedType.basePath, selectedFilter.filter, nextPage, true, blacklistIds);
+  };
+
+  const handleHidden = (id: string) => {
+    setBlacklistIds(prev => new Set([...prev, id]));
+    setMovies(prev => prev.filter(m => m.id !== id));
   };
 
   return (
@@ -84,28 +107,41 @@ export const NewReleasesScreen: React.FC = () => {
         <Text style={styles.headerTitle}>Новинки</Text>
       </View>
 
-      {/* Категории */}
+      {/* Фильтр по типу (Последние / Популярные / Смотрят) */}
       <View style={styles.categoriesContainer}>
         <FlatList
-          data={CATEGORIES}
+          data={CONTENT_FILTERS}
           horizontal
           showsHorizontalScrollIndicator={false}
-          keyExtractor={item => `${item.basePath}-${item.filter}`}
+          keyExtractor={item => item.filter}
           contentContainerStyle={styles.categoriesList}
           renderItem={({item}) => (
             <TouchableOpacity
-              style={[
-                styles.categoryButton,
-                item.basePath === selectedCategory.basePath && item.filter === selectedCategory.filter && styles.categoryButtonActive,
-              ]}
-              onPress={() => handleCategorySelect(item)}
+              style={[styles.categoryButton, item.filter === selectedFilter.filter && styles.categoryButtonActive]}
+              onPress={() => handleFilterSelect(item)}
             >
-              <Text
-                style={[
-                  styles.categoryButtonText,
-                  item.basePath === selectedCategory.basePath && item.filter === selectedCategory.filter && styles.categoryButtonTextActive,
-                ]}
-              >
+              <Text style={[styles.categoryButtonText, item.filter === selectedFilter.filter && styles.categoryButtonTextActive]}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
+      </View>
+
+      {/* Фильтр по контенту (Все / Фильмы / Сериалы / …) */}
+      <View style={styles.typeContainer}>
+        <FlatList
+          data={CONTENT_TYPES}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={item => item.basePath}
+          contentContainerStyle={styles.categoriesList}
+          renderItem={({item}) => (
+            <TouchableOpacity
+              style={[styles.typeButton, item.basePath === selectedType.basePath && styles.typeButtonActive]}
+              onPress={() => handleTypeSelect(item)}
+            >
+              <Text style={[styles.typeButtonText, item.basePath === selectedType.basePath && styles.typeButtonTextActive]}>
                 {item.label}
               </Text>
             </TouchableOpacity>
@@ -131,7 +167,7 @@ export const NewReleasesScreen: React.FC = () => {
           key={`grid-${numColumns}`}
           numColumns={numColumns}
           keyExtractor={item => item.id}
-          renderItem={({item}) => <MovieGridCard movie={item} numColumns={numColumns} />}
+          renderItem={({item}) => <MovieGridCard movie={item} numColumns={numColumns} onBlacklisted={handleHidden} />}
           columnWrapperStyle={styles.row}
           contentContainerStyle={[
             styles.grid,
@@ -182,9 +218,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#3a3a3a',
   },
+  typeContainer: {
+    backgroundColor: '#242424',
+    borderBottomWidth: 1,
+    borderBottomColor: '#3a3a3a',
+  },
   categoriesList: {
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     gap: 8,
   },
   categoryButton: {
@@ -206,6 +247,27 @@ const styles = StyleSheet.create({
   },
   categoryButtonTextActive: {
     color: '#fff',
+    fontWeight: '600',
+  },
+  typeButton: {
+    paddingVertical: 5,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#3a3a3a',
+  },
+  typeButtonActive: {
+    backgroundColor: '#2d4a6e',
+    borderColor: '#4a7ab5',
+  },
+  typeButtonText: {
+    fontSize: 13,
+    color: '#888',
+    fontWeight: '500',
+  },
+  typeButtonTextActive: {
+    color: '#7ab4ff',
     fontWeight: '600',
   },
   grid: {

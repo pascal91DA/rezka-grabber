@@ -1,10 +1,11 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -18,6 +19,7 @@ export const DownloadsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<DownloadedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -26,12 +28,17 @@ export const DownloadsScreen: React.FC = () => {
     setLoading(false);
   }, []);
 
-  // Обновляем список каждый раз при заходе на экран
   useFocusEffect(
     useCallback(() => {
       loadItems();
     }, [loadItems]),
   );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(i => i.title.toLowerCase().includes(q));
+  }, [items, query]);
 
   const handlePlay = (item: DownloadedItem) => {
     navigation.navigate('OfflinePlayer', {
@@ -63,63 +70,106 @@ export const DownloadsScreen: React.FC = () => {
     );
   }
 
-  if (items.length === 0) {
-    return (
-      <View style={[styles.centered, {paddingTop: insets.top}]}>
-        <Ionicons name="download-outline" size={64} color="#444" />
-        <Text style={styles.emptyTitle}>Нет загрузок</Text>
-        <Text style={styles.emptySubtitle}>
-          Скачанные видео появятся здесь.{'\n'}
-          Нажмите «⬇ Скачать MP4» в плеере.
-        </Text>
-      </View>
-    );
-  }
-
   return (
-    <FlatList
-      style={styles.list}
-      contentContainerStyle={[styles.listContent, {paddingTop: insets.top + 16}]}
-      data={items}
-      keyExtractor={item => item.localM3u8Uri}
-      ItemSeparatorComponent={() => <View style={styles.separator} />}
-      renderItem={({item}) => (
-        <TouchableOpacity style={styles.item} onPress={() => handlePlay(item)}>
-          <View style={styles.itemIcon}>
-            <Ionicons name="film-outline" size={28} color="#5eb3ff" />
-          </View>
-          <View style={styles.itemInfo}>
-            <Text style={styles.itemTitle} numberOfLines={2}>
-              {item.title}
-            </Text>
-            <View style={styles.itemMeta}>
-              {item.subtitleUri && (
-                <View style={styles.subtitleBadge}>
-                  <Text style={styles.subtitleBadgeText}>SUB</Text>
-                </View>
-              )}
-              <Text style={styles.itemMetaText}>
-                {item.segmentCount > 0 ? `${item.segmentCount} сегм.` : 'HLS'}
-              </Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={() => handleDelete(item)}
-            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
-          >
-            <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
+    <View style={[styles.container, {paddingTop: insets.top}]}>
+      {/* Поиск */}
+      <View style={styles.searchBar}>
+        <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Поиск по загрузкам..."
+          placeholderTextColor="#555"
+          value={query}
+          onChangeText={setQuery}
+          clearButtonMode="while-editing"
+        />
+        {query.length > 0 && (
+          <TouchableOpacity onPress={() => setQuery('')} hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+            <Ionicons name="close-circle" size={16} color="#555" />
           </TouchableOpacity>
-        </TouchableOpacity>
+        )}
+      </View>
+
+      {items.length === 0 ? (
+        <View style={styles.centered}>
+          <Ionicons name="download-outline" size={64} color="#444" />
+          <Text style={styles.emptyTitle}>Нет загрузок</Text>
+          <Text style={styles.emptySubtitle}>
+            Скачанные видео появятся здесь.{'\n'}
+            Нажмите «⬇ Скачать» в плеере.
+          </Text>
+        </View>
+      ) : filtered.length === 0 ? (
+        <View style={styles.centered}>
+          <Ionicons name="search-outline" size={48} color="#444" />
+          <Text style={styles.emptyTitle}>Ничего не найдено</Text>
+          <Text style={styles.emptySubtitle}>Попробуйте другой запрос</Text>
+        </View>
+      ) : (
+        <FlatList
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          data={filtered}
+          keyExtractor={item => item.localM3u8Uri}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          renderItem={({item}) => (
+            <TouchableOpacity style={styles.item} onPress={() => handlePlay(item)}>
+              <View style={styles.itemIcon}>
+                <Ionicons name="film-outline" size={28} color="#5eb3ff" />
+              </View>
+              <View style={styles.itemInfo}>
+                <Text style={styles.itemTitle} numberOfLines={2}>{item.title}</Text>
+                <View style={styles.itemMeta}>
+                  {item.subtitleUri && (
+                    <View style={styles.subtitleBadge}>
+                      <Text style={styles.subtitleBadgeText}>SUB</Text>
+                    </View>
+                  )}
+                  <Text style={styles.itemMetaText}>
+                    {item.segmentCount > 0 ? `${item.segmentCount} сегм.` : 'HLS'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => handleDelete(item)}
+                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+              >
+                <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          )}
+        />
       )}
-    />
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  centered: {
+  container: {
     flex: 1,
     backgroundColor: '#1a1a1a',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2a2a2a',
+    margin: 12,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  searchIcon: {
+    marginRight: 6,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#fff',
+    padding: 0,
+  },
+  centered: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
@@ -139,7 +189,6 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
   },
   listContent: {
     paddingHorizontal: 16,

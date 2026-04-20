@@ -1,9 +1,11 @@
 import React from 'react';
-import {Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions} from 'react-native';
+import {Alert, Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {Movie} from '../types/Movie';
 import {RootStackParamList} from '../types/navigation';
+import {BlacklistService} from '../services/blacklistService';
+import {WatchedService} from '../services/watchedService';
 
 const H_PADDING = 8;
 const GAP = 6;
@@ -11,20 +13,44 @@ const GAP = 6;
 interface Props {
   movie: Movie;
   numColumns: number;
+  onBlacklisted?: (id: string) => void;
 }
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
-export const MovieGridCard: React.FC<Props> = ({movie, numColumns}) => {
+export const MovieGridCard: React.FC<Props> = ({movie, numColumns, onBlacklisted}) => {
   const navigation = useNavigation<NavProp>();
   const {width} = useWindowDimensions();
   const cardWidth = (width - H_PADDING * 2 - GAP * (numColumns - 1)) / numColumns;
   const posterHeight = Math.round(cardWidth * 1.5);
 
+  const handleLongPress = () => {
+    Alert.alert(movie.title, undefined, [
+      {
+        text: 'Отметить как просмотренное',
+        onPress: async () => {
+          await WatchedService.add(movie);
+          onBlacklisted?.(movie.id);
+        },
+      },
+      {
+        text: 'Добавить в чёрный список',
+        style: 'destructive',
+        onPress: async () => {
+          await BlacklistService.add(movie);
+          onBlacklisted?.(movie.id);
+        },
+      },
+      {text: 'Отмена', style: 'cancel'},
+    ]);
+  };
+
   return (
     <TouchableOpacity
       style={[styles.card, {width: cardWidth}]}
       onPress={() => navigation.navigate('Player', {movie})}
+      onLongPress={handleLongPress}
+      delayLongPress={400}
       activeOpacity={0.75}
     >
       {/* Постер */}
