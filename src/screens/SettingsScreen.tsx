@@ -4,17 +4,9 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../types/navigation';
-import {useTimer, formatTime} from '../context/TimerContext';
+import {useTimer, formatTime, TIMER_PRESETS} from '../context/TimerContext';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
-
-const TIMER_PRESETS = [
-  {label: '5 мин', seconds: 5 * 60},
-  {label: '30 мин', seconds: 30 * 60},
-  {label: '1 ч', seconds: 60 * 60},
-  {label: '1.5 ч', seconds: 90 * 60},
-  {label: '2 ч', seconds: 120 * 60},
-];
 
 const NAV_ROWS = [
   {label: 'Чёрный список', hint: 'Скрытые из новинок и поиска фильмы и сериалы', screen: 'Blacklist'},

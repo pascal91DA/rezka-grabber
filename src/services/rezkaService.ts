@@ -501,7 +501,7 @@ export class RezkaService {
     const url = page === 1
       ? `${REZKA_URL}/${basePath}/?filter=${filter}`
       : `${REZKA_URL}/${basePath}/page/${page}/?filter=${filter}`;
-    const response = await axiosInstance.get(url, {
+    const response = await axiosInstance.get(toProxyUrl(url), {
       headers: {'Referer': REZKA_URL},
     });
     return parseCatalogPage(response.data);
