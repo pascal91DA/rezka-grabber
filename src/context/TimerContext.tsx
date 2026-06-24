@@ -13,6 +13,14 @@ const TimerContext = createContext<TimerContextValue>({
   cancelTimer: () => {},
 });
 
+export const TIMER_PRESETS = [
+  {label: '5 мин', seconds: 5 * 60},
+  {label: '30 мин', seconds: 30 * 60},
+  {label: '1 ч', seconds: 60 * 60},
+  {label: '1.5 ч', seconds: 90 * 60},
+  {label: '2 ч', seconds: 120 * 60},
+];
+
 export function useTimer() {
   return useContext(TimerContext);
 }

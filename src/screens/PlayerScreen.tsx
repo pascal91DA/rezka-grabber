@@ -13,6 +13,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {SubtitleTrack} from '../types/Stream';
 import {DownloadService} from '../services/downloadService';
 import {WebView} from 'react-native-webview';
+import {SleepTimerMenu} from '../components/SleepTimerMenu';
 
 function isSubtitleTranslation(translationTitle: string | undefined): boolean {
   return !!translationTitle?.toLowerCase().includes('субтитр');
@@ -112,8 +113,12 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   }, []);
 
   // Прячем/показываем header при входе/выходе из fullscreen
+  // и выводим кнопку таймера сна справа в шапке
   useEffect(() => {
-    navigation.setOptions({headerShown: !isFullscreen});
+    navigation.setOptions({
+      headerShown: !isFullscreen,
+      headerRight: () => <SleepTimerMenu />,
+    });
   }, [isFullscreen, navigation]);
 
   // Загружаем VTT при смене выбранного субтитра

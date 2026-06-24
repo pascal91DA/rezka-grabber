@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import {File} from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import {downloadHls, HlsDownloadProgress, countExistingSegments} from './hlsDownloader';
 
@@ -6,6 +7,14 @@ export interface DownloadProgress {
   percent: number;
   downloaded: number;
   total: number;
+}
+
+export interface ExportProgress {
+  /** обработано сегментов */
+  current: number;
+  /** всего сегментов */
+  total: number;
+  percent: number;
 }
 
 export interface DownloadedItem {
@@ -134,6 +143,83 @@ export class DownloadService {
       return items;
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Возвращает упорядоченный список file:// URI сегментов из локального M3U8.
+   */
+  private static async readSegmentUris(localM3u8Uri: string): Promise<string[]> {
+    const text = await FileSystem.readAsStringAsync(localM3u8Uri);
+    return text
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('#'));
+  }
+
+  /**
+   * Экспортирует скачанный HLS-ролик в один файл .ts и сохраняет его
+   * в системную медиатеку устройства (галерею).
+   *
+   * Сегменты склеиваются потоково через FileHandle — в память загружается
+   * только один сегмент за раз, поэтому работает и для больших фильмов.
+   *
+   * @returns название альбома/директории, куда сохранён файл
+   */
+  static async exportToDevice(params: {
+    localM3u8Uri: string;
+    title: string;
+    onProgress?: (p: ExportProgress) => void;
+  }): Promise<void> {
+    const {localM3u8Uri, title, onProgress} = params;
+
+    // Запрашиваем доступ к медиатеке заранее
+    const perm = await MediaLibrary.requestPermissionsAsync();
+    if (!perm.granted) {
+      throw new Error('Нет доступа к медиатеке устройства');
+    }
+
+    const segmentUris = await DownloadService.readSegmentUris(localM3u8Uri);
+    if (segmentUris.length === 0) {
+      throw new Error('Не найдены сегменты для экспорта');
+    }
+
+    const safe = sanitizeFilename(title) || 'video';
+    const tmpFile = new File(FileSystem.cacheDirectory + `${safe}.ts`);
+    if (tmpFile.exists) {
+      tmpFile.delete();
+    }
+    tmpFile.create();
+
+    const handle = tmpFile.open();
+    try {
+      let current = 0;
+      for (const segUri of segmentUris) {
+        const segFile = new File(segUri);
+        if (!segFile.exists) {
+          continue;
+        }
+        // Читаем сегмент целиком и дописываем в выходной файл.
+        // Один сегмент HLS — несколько мегабайт, в памяти он недолго.
+        handle.writeBytes(segFile.bytesSync());
+        current += 1;
+        onProgress?.({
+          current,
+          total: segmentUris.length,
+          percent: (current / segmentUris.length) * 100,
+        });
+      }
+    } finally {
+      handle.close();
+    }
+
+    try {
+      await MediaLibrary.saveToLibraryAsync(tmpFile.uri);
+    } finally {
+      // Временный файл больше не нужен — медиатека хранит свою копию
+      if (tmpFile.exists) {
+        tmpFile.delete();
+      }
     }
   }
 

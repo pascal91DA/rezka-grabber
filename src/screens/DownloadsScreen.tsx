@@ -20,6 +20,8 @@ export const DownloadsScreen: React.FC = () => {
   const [items, setItems] = useState<DownloadedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  // localM3u8Uri экспортируемого элемента -> процент прогресса (0..100)
+  const [exporting, setExporting] = useState<Record<string, number>>({});
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -46,6 +48,30 @@ export const DownloadsScreen: React.FC = () => {
       localM3u8Uri: item.localM3u8Uri,
       subtitleUri: item.subtitleUri,
     });
+  };
+
+  const handleExport = async (item: DownloadedItem) => {
+    if (exporting[item.localM3u8Uri] !== undefined) return;
+    setExporting(prev => ({...prev, [item.localM3u8Uri]: 0}));
+    try {
+      await DownloadService.exportToDevice({
+        localM3u8Uri: item.localM3u8Uri,
+        title: item.title,
+        onProgress: p => {
+          setExporting(prev => ({...prev, [item.localM3u8Uri]: p.percent}));
+        },
+      });
+      Alert.alert('Готово', `«${item.title}» сохранён в галерею устройства.`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Не удалось сохранить файл';
+      Alert.alert('Ошибка', msg);
+    } finally {
+      setExporting(prev => {
+        const next = {...prev};
+        delete next[item.localM3u8Uri];
+        return next;
+      });
+    }
   };
 
   const handleDelete = (item: DownloadedItem) => {
@@ -130,6 +156,22 @@ export const DownloadsScreen: React.FC = () => {
                   </Text>
                 </View>
               </View>
+              {exporting[item.localM3u8Uri] !== undefined ? (
+                <View style={styles.exportButton}>
+                  <ActivityIndicator size="small" color="#5eb3ff" />
+                  <Text style={styles.exportPercent}>
+                    {Math.round(exporting[item.localM3u8Uri])}%
+                  </Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.exportButton}
+                  onPress={() => handleExport(item)}
+                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                >
+                  <Ionicons name="save-outline" size={20} color="#5eb3ff" />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={() => handleDelete(item)}
@@ -244,8 +286,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
-  deleteButton: {
+  exportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     padding: 8,
     marginLeft: 8,
+  },
+  exportPercent: {
+    fontSize: 12,
+    color: '#5eb3ff',
+    minWidth: 28,
+  },
+  deleteButton: {
+    padding: 8,
+    marginLeft: 4,
   },
 });
