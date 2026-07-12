@@ -157,7 +157,7 @@ export const NewReleasesScreen: React.FC = () => {
       ) : error ? (
         <View style={styles.centerContainer}>
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => { setPage(1); loadMovies(selectedCategory, 1, false); }}>
+          <TouchableOpacity style={styles.retryButton} onPress={() => { setPage(1); loadMovies(selectedType.basePath, selectedFilter.filter, 1, false, blacklistIds); }}>
             <Text style={styles.retryButtonText}>Повторить</Text>
           </TouchableOpacity>
         </View>
