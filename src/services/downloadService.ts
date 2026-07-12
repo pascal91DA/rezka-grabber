@@ -184,8 +184,12 @@ export class DownloadService {
       throw new Error('Не найдены сегменты для экспорта');
     }
 
+    // Сегменты HLS — MPEG-TS. Сохраняем с расширением .mp4: у ".ts" нет MIME в
+    // Android MimeTypeMap, из-за чего MediaLibrary трактует файл как изображение и
+    // копирование в медиатеку падает ("Unable to copy file into external storage").
+    // Само содержимое остаётся MPEG-TS — плееры распознают его по потоку.
     const safe = sanitizeFilename(title) || 'video';
-    const tmpFile = new File(FileSystem.cacheDirectory + `${safe}.ts`);
+    const tmpFile = new File(FileSystem.cacheDirectory + `${safe}.mp4`);
     if (tmpFile.exists) {
       tmpFile.delete();
     }

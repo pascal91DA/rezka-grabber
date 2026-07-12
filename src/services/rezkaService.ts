@@ -3,6 +3,7 @@ import {Platform} from 'react-native';
 import {Movie} from '../types/Movie';
 import {parseStreamInfo, parseSubtitles, applyUrlFixes} from '../utils/streamParser';
 import type {StreamInfo, SubtitleTrack} from '../types/Stream';
+import {isAnubisChallenge, solveAnubisChallenge} from './anubisService';
 
 const REZKA_URL = 'https://rezka.ag';
 const PROXY_URL = 'http://localhost:3001/proxy';
@@ -19,6 +20,20 @@ const COMMON_HEADERS = {
 const axiosInstance = axios.create({
   headers: COMMON_HEADERS,
   timeout: 30000,
+});
+
+// На native rezka.ag защищён Anubis (proof-of-work anti-bot). Если ответ оказался
+// challenge-страницей вместо контента — решаем PoW и повторяем запрос один раз.
+// На web этим занимается прокси (proxy-server.js), поэтому пропускаем.
+axiosInstance.interceptors.response.use(async (response) => {
+  if (Platform.OS === 'web') return response;
+  const config = response.config as typeof response.config & {__anubisRetried?: boolean};
+  if (isAnubisChallenge(response.data) && !config.__anubisRetried) {
+    await solveAnubisChallenge(response.data);
+    config.__anubisRetried = true;
+    return axiosInstance.request(config);
+  }
+  return response;
 });
 
 function toProxyUrl(url: string): string {
@@ -159,9 +174,13 @@ export class RezkaService {
       const translatorsList = translatorBlockMatch[1];
       const translationRegex = /<(?:a|li)[^>]*data-translator_id="(\d+)"[^>]*>/gi;
       let match;
+      // rezka дублирует блок translators-list в HTML — отсеиваем повторяющиеся id.
+      const seenTranslators = new Set<string>();
 
       while ((match = translationRegex.exec(translatorsList)) !== null) {
         const translatorId = match[1];
+        if (seenTranslators.has(translatorId)) continue;
+        seenTranslators.add(translatorId);
         const fullTag = match[0];
         const titleMatch = fullTag.match(/title="([^"]+)"/);
         const title = titleMatch ? titleMatch[1] : `Перевод ${translatorId}`;
@@ -201,8 +220,11 @@ export class RezkaService {
       const seasonsList = seasonsBlockMatch[1];
       const seasonRegex = /<(?:a|li)[^>]*data-tab_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
       let match;
+      const seenSeasons = new Set<string>();
 
       while ((match = seasonRegex.exec(seasonsList)) !== null) {
+        if (seenSeasons.has(match[1])) continue;
+        seenSeasons.add(match[1]);
         seasons.push({id: match[1], title: match[2].trim()});
       }
     }
@@ -214,8 +236,12 @@ export class RezkaService {
       const episodesList = episodesBlockMatch[1];
       const episodeRegex = /<(?:a|li)[^>]*data-season_id="(\d+)"[^>]*data-episode_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
       let match;
+      const seenEpisodes = new Set<string>();
 
       while ((match = episodeRegex.exec(episodesList)) !== null) {
+        const key = `${match[1]}-${match[2]}`;
+        if (seenEpisodes.has(key)) continue;
+        seenEpisodes.add(key);
         episodes.push({
           id: match[2],
           title: match[3].trim(),
