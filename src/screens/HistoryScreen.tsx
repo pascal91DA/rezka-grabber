@@ -1,4 +1,4 @@
-import React, {useState, useCallback, useMemo} from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,29 +10,58 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import {useFocusEffect, useNavigation} from '@react-navigation/native';
-import {useBottomTabBarHeight} from '@react-navigation/bottom-tabs';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {HistoryService, HistoryEntry} from '../services/historyService';
-import {RootStackParamList} from '../types/navigation';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { HistoryService, HistoryEntry } from '../services/historyService';
+import { RootStackParamList } from '../types/navigation';
+import { useTheme } from '../context/ThemeContext';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Main'>;
+
+/**
+ * Время просмотра: «Сегодня, 14:32», «Вчера, 20:15», «12 мар, 18:00»,
+ * для прошлых лет — «12.03.2025, 18:00»
+ */
+const formatWatchedAt = (timestamp?: number): string => {
+  if (!timestamp || !Number.isFinite(timestamp)) return '';
+
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return '';
+
+  const time = date.toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const now = new Date();
+  const daysAgo = Math.round((startOfDay(now) - startOfDay(date)) / 86400000);
+
+  if (daysAgo === 0) return `Сегодня, ${time}`;
+  if (daysAgo === 1) return `Вчера, ${time}`;
+
+  if (date.getFullYear() === now.getFullYear()) {
+    const day = date.toLocaleDateString('ru-RU', {
+      day: 'numeric',
+      month: 'short',
+    });
+    return `${day}, ${time}`;
+  }
+
+  return `${date.toLocaleDateString('ru-RU')}, ${time}`;
+};
 
 export const HistoryScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
   const tabBarHeight = useBottomTabBarHeight();
+  const theme = useTheme();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, []),
-  );
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const movies = await HistoryService.getHistory();
@@ -40,13 +69,19 @@ export const HistoryScreen: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData]),
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return history;
     return history.filter(
-      e =>
+      (e) =>
         e.movie.title.toLowerCase().includes(q) ||
         (e.movie.originalTitle && e.movie.originalTitle.toLowerCase().includes(q)),
     );
@@ -66,39 +101,38 @@ export const HistoryScreen: React.FC = () => {
   const handleRemove = async (entry: HistoryEntry) => {
     const key = HistoryService.entryKey(entry);
     await HistoryService.removeFromHistory(key);
-    setHistory(prev => prev.filter(e => HistoryService.entryKey(e) !== key));
+    setHistory((prev) => prev.filter((e) => HistoryService.entryKey(e) !== key));
   };
 
   const handleClearAll = () => {
-    Alert.alert(
-      'Очистить историю',
-      'Удалить всю историю просмотров?',
-      [
-        {text: 'Отмена', style: 'cancel'},
-        {
-          text: 'Очистить',
-          style: 'destructive',
-          onPress: async () => {
-            await HistoryService.clearHistory();
-            setHistory([]);
-            setQuery('');
-          },
+    Alert.alert('Очистить историю', 'Удалить всю историю просмотров?', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Очистить',
+        style: 'destructive',
+        onPress: async () => {
+          await HistoryService.clearHistory();
+          setHistory([]);
+          setQuery('');
         },
-      ],
-    );
+      },
+    ]);
   };
 
-  const renderItem = ({item}: {item: HistoryEntry}) => {
+  const renderItem = ({ item }: { item: HistoryEntry }) => {
     const details: string[] = [];
     if (item.translationTitle) details.push(item.translationTitle);
     if (item.seasonTitle) details.push(item.seasonTitle);
     if (item.episodeTitle) details.push(item.episodeTitle);
 
+    const watchedAt = formatWatchedAt(item.timestamp);
+
     return (
       <TouchableOpacity
         style={styles.card}
         onPress={() => handleMoviePress(item)}
-        activeOpacity={0.7}>
+        activeOpacity={0.7}
+      >
         <View style={styles.cardInfo}>
           <Text style={styles.cardTitle} numberOfLines={2}>
             {item.movie.title}
@@ -109,15 +143,16 @@ export const HistoryScreen: React.FC = () => {
             </Text>
           )}
           <View style={styles.cardMeta}>
-            {item.movie.year && (
-              <Text style={styles.cardYear}>{item.movie.year}</Text>
-            )}
-            {item.movie.rating && (
-              <Text style={styles.cardRating}>★ {item.movie.rating}</Text>
+            {item.movie.year && <Text style={styles.cardYear}>{item.movie.year}</Text>}
+            {item.movie.rating && <Text style={styles.cardRating}>★ {item.movie.rating}</Text>}
+            {watchedAt !== '' && (
+              <Text style={styles.cardTime} numberOfLines={1}>
+                {watchedAt}
+              </Text>
             )}
           </View>
           {details.length > 0 && (
-            <Text style={styles.cardDetails} numberOfLines={1}>
+            <Text style={[styles.cardDetails, { color: theme.accent }]} numberOfLines={1}>
               {details.join(' · ')}
             </Text>
           )}
@@ -125,7 +160,8 @@ export const HistoryScreen: React.FC = () => {
         <TouchableOpacity
           style={styles.removeButton}
           onPress={() => handleRemove(item)}
-          hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Text style={styles.removeButtonText}>✕</Text>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -138,9 +174,7 @@ export const HistoryScreen: React.FC = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>История просмотров</Text>
         {history.length > 0 ? (
-          <TouchableOpacity
-            style={styles.clearAllButton}
-            onPress={handleClearAll}>
+          <TouchableOpacity style={styles.clearAllButton} onPress={handleClearAll}>
             <Text style={styles.clearAllButtonText}>Очистить</Text>
           </TouchableOpacity>
         ) : (
@@ -161,9 +195,7 @@ export const HistoryScreen: React.FC = () => {
             returnKeyType="search"
           />
           {query.length > 0 && (
-            <TouchableOpacity
-              style={styles.clearButton}
-              onPress={() => setQuery('')}>
+            <TouchableOpacity style={styles.clearButton} onPress={() => setQuery('')}>
               <Text style={styles.clearButtonText}>✕</Text>
             </TouchableOpacity>
           )}
@@ -172,18 +204,17 @@ export const HistoryScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#5eb3ff" />
+          <ActivityIndicator size="large" color={theme.accent} />
         </View>
       ) : (
         <FlatList
           data={filtered}
-          keyExtractor={item => HistoryService.entryKey(item)}
+          keyExtractor={(item) => HistoryService.entryKey(item)}
           renderItem={renderItem}
           contentContainerStyle={[
             filtered.length === 0 ? styles.emptyList : styles.list,
-            {paddingBottom: tabBarHeight},
+            { paddingBottom: tabBarHeight },
           ]}
-
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             <View style={styles.centerContainer}>
@@ -324,6 +355,7 @@ const styles = StyleSheet.create({
   cardMeta: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
   cardYear: {
     fontSize: 12,
@@ -334,10 +366,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#ffa500',
     fontWeight: '600',
+    marginRight: 8,
+  },
+  cardTime: {
+    fontSize: 12,
+    color: '#777',
   },
   cardDetails: {
     fontSize: 12,
-    color: '#5eb3ff',
     marginTop: 5,
   },
   removeButton: {

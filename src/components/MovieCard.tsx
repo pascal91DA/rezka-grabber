@@ -29,12 +29,8 @@ export const MovieCard: React.FC<MovieCardProps> = ({ movie }) => {
           </Text>
         )}
         <View style={styles.metadata}>
-          {movie.year && (
-            <Text style={styles.year}>{movie.year}</Text>
-          )}
-          {movie.rating && (
-            <Text style={styles.rating}>★ {movie.rating}</Text>
-          )}
+          {movie.year && <Text style={styles.year}>{movie.year}</Text>}
+          {movie.rating && <Text style={styles.rating}>★ {movie.rating}</Text>}
         </View>
       </View>
     </TouchableOpacity>

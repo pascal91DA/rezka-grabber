@@ -1,13 +1,15 @@
 export interface VttCue {
   start: number; // seconds
-  end: number;   // seconds
+  end: number; // seconds
   text: string;
 }
 
 function parseTimestamp(ts: string): number {
   // HH:MM:SS.mmm or MM:SS.mmm
   const parts = ts.trim().split(':');
-  let h = 0, m = 0, s = 0;
+  let h = 0,
+    m = 0,
+    s = 0;
   if (parts.length === 3) {
     h = parseFloat(parts[0]);
     m = parseFloat(parts[1]);
@@ -52,7 +54,7 @@ export function parseVtt(text: string): VttCue[] {
       .trim();
 
     if (text) {
-      cues.push({start, end, text});
+      cues.push({ start, end, text });
     }
   }
 

@@ -1,19 +1,39 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, Alert, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View, useWindowDimensions} from 'react-native';
-import Video, {OnProgressData, VideoRef, ViewType} from 'react-native-video';
-import {parseVtt, getCurrentCue} from '../utils/vttParser';
-import {Movie} from '../types/Movie';
-import {ResumeParams} from '../types/navigation';
-import {Episode, MovieData, RezkaService, Season, Translation} from '../services/rezkaService';
-import {HistoryService} from '../services/historyService';
-import {activateKeepAwakeAsync, deactivateKeepAwake} from "expo-keep-awake";
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import Video, { OnProgressData, VideoRef, ViewType } from 'react-native-video';
+import { parseVtt, getCurrentCue } from '../utils/vttParser';
+import { Movie } from '../types/Movie';
+import { ResumeParams, RootStackParamList } from '../types/navigation';
+import {
+  Episode,
+  FranchisePart,
+  MovieData,
+  RezkaService,
+  Season,
+  Translation,
+} from '../services/rezkaService';
+import { HistoryService } from '../services/historyService';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as NavigationBar from 'expo-navigation-bar';
-import {useNavigation} from '@react-navigation/native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import type {SubtitleTrack} from '../types/Stream';
-import {DownloadService} from '../services/downloadService';
-import {WebView} from 'react-native-webview';
-import {SleepTimerMenu} from '../components/SleepTimerMenu';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { SubtitleTrack } from '../types/Stream';
+import { DownloadService } from '../services/downloadService';
+import { WebView } from 'react-native-webview';
+import { SleepTimerMenu } from '../components/SleepTimerMenu';
+import { useTheme } from '../context/ThemeContext';
 
 function isSubtitleTranslation(translationTitle: string | undefined): boolean {
   return !!translationTitle?.toLowerCase().includes('субтитр');
@@ -31,10 +51,9 @@ function resolveSubtitleIndex(
 
 function restoreSubtitleIndex(tracks: SubtitleTrack[], savedTitle: string | null): number | null {
   if (!savedTitle || tracks.length === 0) return null;
-  const idx = tracks.findIndex(s => s.title === savedTitle);
+  const idx = tracks.findIndex((s) => s.title === savedTitle);
   return idx >= 0 ? idx : null;
 }
-
 
 interface PlayerScreenProps {
   route: {
@@ -45,10 +64,11 @@ interface PlayerScreenProps {
   };
 }
 
-export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
-  const {movie, resume} = route.params;
-  const navigation = useNavigation();
-  const {width, height} = useWindowDimensions();
+export const PlayerScreen: React.FC<PlayerScreenProps> = ({ route }) => {
+  const { movie, resume } = route.params;
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const theme = useTheme();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isLandscape = width > height;
   const [loading, setLoading] = useState(true);
@@ -68,6 +88,9 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
   const lastSubtitleTitle = useRef<string | null>(null);
 
+  // Список частей франшизы по умолчанию свёрнут — он бывает длинным
+  const [franchiseExpanded, setFranchiseExpanded] = useState(false);
+
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [partialSegments, setPartialSegments] = useState(0);
@@ -78,13 +101,17 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const videoRef = useRef<VideoRef>(null);
   const vttCuesRef = useRef<ReturnType<typeof parseVtt>>([]);
   const currentTimeRef = useRef(0);
-  const [subtitleText, setSubtitleText] = useState<string | null>(null);
+  // Реплика хранится вместе с дорожкой, к которой относится: при переключении
+  // дорожки прошлая реплика перестаёт подходить и исчезает без сброса в эффекте.
+  const [subtitleCue, setSubtitleCue] = useState<{
+    trackIndex: number | null;
+    text: string | null;
+  }>({ trackIndex: null, text: null });
+  const subtitleText = subtitleCue.trackIndex === selectedSubtitleIndex ? subtitleCue.text : null;
   // Флаг перехвата нативного fullscreen
   const interceptingNativeFullscreen = useRef(false);
   // Ref для отслеживания, что мы уже обрабатываем переход к следующей серии
   const isLoadingNextEpisode = useRef(false);
-  // Ref для отслеживания, что идёт первоначальная загрузка с resume
-  const isRestoringFromResume = useRef(false);
   // Предзагруженный URL следующей серии
   const preloadedNextEpisode = useRef<{
     episode: Episode;
@@ -104,9 +131,9 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   const videoDuration = useRef(0);
 
   useEffect(() => {
-    activateKeepAwakeAsync().then(r => console.log("activateKeepAwakeAsync", r));
+    activateKeepAwakeAsync().then((r) => console.log('activateKeepAwakeAsync', r));
     return () => {
-      deactivateKeepAwake().then(r => console.log("deactivateKeepAwake", r));
+      deactivateKeepAwake().then((r) => console.log('deactivateKeepAwake', r));
       StatusBar.setHidden(false);
       NavigationBar.setVisibilityAsync('visible');
     };
@@ -124,7 +151,6 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   // Загружаем VTT при смене выбранного субтитра
   useEffect(() => {
     vttCuesRef.current = [];
-    setSubtitleText(null);
 
     if (selectedSubtitleIndex === null || !subtitles[selectedSubtitleIndex]) return;
 
@@ -132,21 +158,16 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     console.log('[Subtitles] Loading VTT:', url);
 
     fetch(url)
-      .then(r => r.text())
-      .then(text => {
+      .then((r) => r.text())
+      .then((text) => {
         const cues = parseVtt(text);
         console.log('[Subtitles] Parsed cues:', cues.length);
         vttCuesRef.current = cues;
       })
-      .catch(e => {
+      .catch((e) => {
         console.error('[Subtitles] Failed to load VTT:', e);
       });
   }, [selectedSubtitleIndex, subtitles]);
-
-
-  useEffect(() => {
-    loadMovieData();
-  }, []);
 
   // Проверяем наличие незавершённой загрузки при смене серии/фильма
   useEffect(() => {
@@ -158,9 +179,10 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   }, [movie.title, selectedSeason?.id, selectedEpisode?.id]);
 
   // Фильтруем серии по выбранному сезону
-  const filteredEpisodes = movieData?.episodes?.filter(
-    (episode) => !selectedSeason || episode.seasonId === selectedSeason.id
-  ) || [];
+  const filteredEpisodes =
+    movieData?.episodes?.filter(
+      (episode) => !selectedSeason || episode.seasonId === selectedSeason.id,
+    ) || [];
 
   // Получаем следующую серию
   const getNextEpisode = useCallback((): { episode: Episode; season?: Season } | null => {
@@ -168,7 +190,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
     const allEpisodes = movieData.episodes;
     const currentIndex = allEpisodes.findIndex(
-      (ep) => ep.id === selectedEpisode.id && ep.seasonId === selectedEpisode.seasonId
+      (ep) => ep.id === selectedEpisode.id && ep.seasonId === selectedEpisode.seasonId,
     );
 
     if (currentIndex === -1 || currentIndex >= allEpisodes.length - 1) {
@@ -179,10 +201,10 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
     if (nextEpisode.seasonId !== selectedEpisode.seasonId && movieData.seasons) {
       const nextSeason = movieData.seasons.find((s) => s.id === nextEpisode.seasonId);
-      return {episode: nextEpisode, season: nextSeason};
+      return { episode: nextEpisode, season: nextSeason };
     }
 
-    return {episode: nextEpisode};
+    return { episode: nextEpisode };
   }, [movieData, selectedEpisode]);
 
   // Предзагрузка URL следующей серии
@@ -193,8 +215,10 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       return;
     }
 
-    if (preloadedNextEpisode.current?.episode.id === next.episode.id &&
-      preloadedNextEpisode.current?.episode.seasonId === next.episode.seasonId) {
+    if (
+      preloadedNextEpisode.current?.episode.id === next.episode.id &&
+      preloadedNextEpisode.current?.episode.seasonId === next.episode.seasonId
+    ) {
       return;
     }
 
@@ -208,7 +232,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         selectedTranslation?.slug,
         next.season?.id || selectedSeason?.id,
         next.episode.id,
-        3
+        3,
       );
 
       preloadedNextEpisode.current = {
@@ -237,7 +261,8 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     isLoadingNextEpisode.current = true;
 
     const preloaded = preloadedNextEpisode.current;
-    const hasPreloaded = preloaded &&
+    const hasPreloaded =
+      preloaded &&
       preloaded.episode.id === next.episode.id &&
       preloaded.episode.seasonId === next.episode.seasonId;
 
@@ -249,7 +274,13 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       setVideoUrl(preloaded.url);
       setVideoQuality(preloaded.quality);
       setSubtitles(preloaded.subtitles);
-      setSelectedSubtitleIndex(resolveSubtitleIndex(preloaded.subtitles, lastSubtitleTitle.current, selectedTranslation?.title));
+      setSelectedSubtitleIndex(
+        resolveSubtitleIndex(
+          preloaded.subtitles,
+          lastSubtitleTitle.current,
+          selectedTranslation?.title,
+        ),
+      );
       videoLoaded.current = false;
 
       HistoryService.saveLastWatch({
@@ -282,14 +313,22 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
           next.episode.id,
           5,
           (attempt, maxAttempts, quality) => {
-            setLoadingStatus(`Попытка ${attempt}/${maxAttempts}... ${quality ? `(${quality})` : ''}`);
-          }
+            setLoadingStatus(
+              `Попытка ${attempt}/${maxAttempts}... ${quality ? `(${quality})` : ''}`,
+            );
+          },
         );
 
         setVideoUrl(result.url);
         setVideoQuality(result.quality);
         setSubtitles(result.subtitles);
-        setSelectedSubtitleIndex(resolveSubtitleIndex(result.subtitles, lastSubtitleTitle.current, selectedTranslation?.title));
+        setSelectedSubtitleIndex(
+          resolveSubtitleIndex(
+            result.subtitles,
+            lastSubtitleTitle.current,
+            selectedTranslation?.title,
+          ),
+        );
         videoLoaded.current = false;
         setLoadingStatus('');
 
@@ -317,71 +356,94 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   }, [getNextEpisode, loadingVideo, movie, selectedTranslation, selectedSeason]);
 
   // Обработчик загрузки видео
-  const handleLoad = useCallback((data: { duration: number }) => {
-    console.log('[Player] Video loaded, duration:', data.duration);
-    videoDuration.current = data.duration;
-    videoLoaded.current = true;
-    retryCount.current = 0;
-    preloadNextEpisode();
-  }, [preloadNextEpisode]);
+  const handleLoad = useCallback(
+    (data: { duration: number }) => {
+      console.log('[Player] Video loaded, duration:', data.duration);
+      videoDuration.current = data.duration;
+      videoLoaded.current = true;
+      retryCount.current = 0;
+      preloadNextEpisode();
+    },
+    [preloadNextEpisode],
+  );
+
+  // Список серий вынесен отдельно: React Compiler выводит зависимость по
+  // самому короткому пути, поэтому в deps должно стоять то же значение.
+  const episodes = movieData?.episodes;
 
   // Обработчик прогресса
-  const handleProgress = useCallback((data: OnProgressData) => {
-    currentTimeRef.current = data.currentTime;
-    if (vttCuesRef.current.length > 0) {
-      setSubtitleText(getCurrentCue(vttCuesRef.current, data.currentTime));
-    }
-    const remaining = videoDuration.current - data.currentTime;
-
-    if (videoDuration.current > 0 && remaining < 1 && remaining >= 0 && !switchingEpisode.current) {
-      if (autoPlay && movieData?.episodes && movieData.episodes.length > 0) {
-        console.log('[Player] Near end, switching to next episode');
-        playNextEpisode();
+  const handleProgress = useCallback(
+    (data: OnProgressData) => {
+      currentTimeRef.current = data.currentTime;
+      if (vttCuesRef.current.length > 0) {
+        setSubtitleCue({
+          trackIndex: selectedSubtitleIndex,
+          text: getCurrentCue(vttCuesRef.current, data.currentTime),
+        });
       }
-    }
-  }, [autoPlay, movieData?.episodes, playNextEpisode]);
+      const remaining = videoDuration.current - data.currentTime;
+
+      if (
+        videoDuration.current > 0 &&
+        remaining < 1 &&
+        remaining >= 0 &&
+        !switchingEpisode.current
+      ) {
+        if (autoPlay && episodes && episodes.length > 0) {
+          console.log('[Player] Near end, switching to next episode');
+          playNextEpisode();
+        }
+      }
+    },
+    [autoPlay, episodes, playNextEpisode, selectedSubtitleIndex],
+  );
 
   // Обработчик окончания видео
   const handleEnd = useCallback(() => {
     console.log('[Player] Video ended');
-    if (autoPlay && movieData?.episodes && movieData.episodes.length > 0 && !switchingEpisode.current) {
+    if (autoPlay && episodes && episodes.length > 0 && !switchingEpisode.current) {
       playNextEpisode();
     }
-  }, [autoPlay, movieData?.episodes, playNextEpisode]);
+  }, [autoPlay, episodes, playNextEpisode]);
 
   // Обработчик ошибки
-  const handleError = useCallback((error: any) => {
-    console.error('[Player] Error:', error);
+  const handleError = useCallback(
+    (error: any) => {
+      console.error('[Player] Error:', error);
 
-    if (retryCount.current < maxRetries) {
-      retryCount.current++;
-      console.log(`[Player] Retrying ${retryCount.current}/${maxRetries}...`);
+      if (retryCount.current < maxRetries) {
+        retryCount.current++;
+        console.log(`[Player] Retrying ${retryCount.current}/${maxRetries}...`);
 
-      RezkaService.getVideoUrlWithRetry(
-        movie.url,
-        movieData?.id || '',
-        selectedTranslation?.id || '',
-        selectedTranslation?.slug,
-        selectedSeason?.id,
-        selectedEpisode?.id,
-        3
-      ).then((result) => {
-        setVideoUrl(result.url);
-        setVideoQuality(result.quality);
-      }).catch(() => {
-        setError('Ошибка воспроизведения');
-      });
-    } else {
-      setError('Ошибка воспроизведения видео');
-    }
-  }, [movie.url, selectedTranslation?.id, selectedSeason?.id, selectedEpisode?.id]);
+        RezkaService.getVideoUrlWithRetry(
+          movie.url,
+          movieData?.id || '',
+          selectedTranslation?.id || '',
+          selectedTranslation?.slug,
+          selectedSeason?.id,
+          selectedEpisode?.id,
+          3,
+        )
+          .then((result) => {
+            setVideoUrl(result.url);
+            setVideoQuality(result.quality);
+          })
+          .catch(() => {
+            setError('Ошибка воспроизведения');
+          });
+      } else {
+        setError('Ошибка воспроизведения видео');
+      }
+    },
+    [movie.url, selectedTranslation?.id, selectedSeason?.id, selectedEpisode?.id],
+  );
 
   // Перехватываем нативный fullscreen и заменяем своим
   const handleFullscreenPresent = useCallback(() => {
     interceptingNativeFullscreen.current = true;
     videoRef.current?.dismissFullscreenPlayer();
     // Если уже в fake fullscreen — нативная кнопка работает как выход
-    setIsFullscreen(prev => {
+    setIsFullscreen((prev) => {
       const entering = !prev;
       StatusBar.setHidden(entering, 'fade');
       NavigationBar.setVisibilityAsync(entering ? 'hidden' : 'visible');
@@ -405,20 +467,25 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     NavigationBar.setVisibilityAsync('visible');
   }, []);
 
-  // Обновляем выбранную серию при смене сезона
-  useEffect(() => {
-    if (isRestoringFromResume.current) return;
+  // Выбор сезона: если текущая серия не из него, переключаемся на первую.
+  // Остальные места, меняющие сезон, задают серию явно, поэтому правка нужна только здесь.
+  const handleSeasonSelect = useCallback(
+    (season: Season) => {
+      setSelectedSeason(season);
 
-    if (selectedSeason && filteredEpisodes.length > 0) {
-      const currentEpisodeInSeason = filteredEpisodes.find(
-        (ep) => ep.id === selectedEpisode?.id && ep.seasonId === selectedEpisode?.seasonId
+      const episodesInSeason =
+        movieData?.episodes?.filter((episode) => episode.seasonId === season.id) || [];
+      if (episodesInSeason.length === 0) return;
+
+      const currentStillThere = episodesInSeason.some(
+        (ep) => ep.id === selectedEpisode?.id && ep.seasonId === selectedEpisode?.seasonId,
       );
-
-      if (!currentEpisodeInSeason) {
-        setSelectedEpisode(filteredEpisodes[0]);
+      if (!currentStillThere) {
+        setSelectedEpisode(episodesInSeason[0]);
       }
-    }
-  }, [selectedSeason]);
+    },
+    [movieData?.episodes, selectedEpisode?.id, selectedEpisode?.seasonId],
+  );
 
   // Сбрасываем URL при изменении выбора
   const prevTranslation = useRef(selectedTranslation?.id);
@@ -435,19 +502,23 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     prevTranslationForSeasons.current = selectedTranslation.id;
 
     RezkaService.getSeasonsAndEpisodes(movieData.id, selectedTranslation.id)
-      .then(({seasons, episodes}) => {
+      .then(({ seasons, episodes }) => {
         if (seasons.length === 0 && episodes.length === 0) return;
-        setMovieData(prev => prev ? {
-          ...prev,
-          seasons: seasons.length > 0 ? seasons : prev.seasons,
-          episodes: episodes.length > 0 ? episodes : prev.episodes,
-        } : prev);
+        setMovieData((prev) =>
+          prev
+            ? {
+                ...prev,
+                seasons: seasons.length > 0 ? seasons : prev.seasons,
+                episodes: episodes.length > 0 ? episodes : prev.episodes,
+              }
+            : prev,
+        );
         if (!isInitial) {
           if (seasons.length > 0) setSelectedSeason(seasons[0]);
           if (episodes.length > 0) setSelectedEpisode(episodes[0]);
         }
       })
-      .catch(err => console.error('[PlayerScreen] Failed to reload seasons:', err));
+      .catch((err) => console.error('[PlayerScreen] Failed to reload seasons:', err));
   }, [selectedTranslation?.id, movieData?.id]);
 
   useEffect(() => {
@@ -471,25 +542,22 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     }
   }, [selectedTranslation, selectedSeason, selectedEpisode]);
 
-  const loadMovieData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await RezkaService.getMovieData(movie.url);
+  // Раскладываем загруженные данные по состоянию: выбор берём из resume,
+  // иначе первые доступные перевод/сезон/серию.
+  const applyMovieData = useCallback(
+    (data: MovieData) => {
       setMovieData(data);
 
       if (resume) {
-        isRestoringFromResume.current = true;
-
         if (resume.translationId && data.translations.length > 0) {
-          const translation = data.translations.find(t => t.id === resume.translationId);
+          const translation = data.translations.find((t) => t.id === resume.translationId);
           setSelectedTranslation(translation || data.translations[0]);
         } else if (data.translations.length > 0) {
           setSelectedTranslation(data.translations[0]);
         }
 
         if (resume.seasonId && data.seasons && data.seasons.length > 0) {
-          const season = data.seasons.find(s => s.id === resume.seasonId);
+          const season = data.seasons.find((s) => s.id === resume.seasonId);
           setSelectedSeason(season || data.seasons[0]);
         } else if (data.seasons && data.seasons.length > 0) {
           setSelectedSeason(data.seasons[0]);
@@ -498,17 +566,13 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         if (data.episodes && data.episodes.length > 0) {
           if (resume.episodeId) {
             const episode = data.episodes.find(
-              e => e.id === resume.episodeId && e.seasonId === resume.seasonId
+              (e) => e.id === resume.episodeId && e.seasonId === resume.seasonId,
             );
             setSelectedEpisode(episode || data.episodes[0]);
           } else {
             setSelectedEpisode(data.episodes[0]);
           }
         }
-
-        setTimeout(() => {
-          isRestoringFromResume.current = false;
-        }, 0);
       } else {
         if (data.translations.length > 0) {
           setSelectedTranslation(data.translations[0]);
@@ -522,12 +586,30 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
           setSelectedEpisode(data.episodes[0]);
         }
       }
-    } catch (err) {
-      setError('Ошибка при загрузке данных фильма');
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [resume],
+  );
+
+  // Загрузка данных фильма при открытии экрана. Состояние меняется только в
+  // колбэках промиса; cancelled защищает от ответа, пришедшего после ухода с экрана.
+  useEffect(() => {
+    let cancelled = false;
+
+    RezkaService.getMovieData(movie.url)
+      .then((data) => {
+        if (!cancelled) applyMovieData(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Ошибка при загрузке данных фильма');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [movie.url, applyMovieData]);
 
   const loadVideoUrl = async () => {
     if (movieData?.translations && movieData.translations.length > 0 && !selectedTranslation) {
@@ -552,7 +634,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         5,
         (attempt, maxAttempts, quality) => {
           setLoadingStatus(`Попытка ${attempt}/${maxAttempts}... ${quality ? `(${quality})` : ''}`);
-        }
+        },
       );
 
       // Если вернулся iframe/embed URL внешнего плеера — разрешаем через WebView
@@ -567,7 +649,13 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       setVideoUrl(result.url);
       setVideoQuality(result.quality);
       setSubtitles(result.subtitles);
-      setSelectedSubtitleIndex(resolveSubtitleIndex(result.subtitles, lastSubtitleTitle.current, selectedTranslation?.title));
+      setSelectedSubtitleIndex(
+        resolveSubtitleIndex(
+          result.subtitles,
+          lastSubtitleTitle.current,
+          selectedTranslation?.title,
+        ),
+      );
       setPaused(false);
       setLoadingStatus('');
 
@@ -671,6 +759,26 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
     } catch {}
   }, []);
 
+  // Переход к другой части франшизы — это движение «вбок», а не «вглубь»,
+  // поэтому replace, а не push: иначе стек копил бы экраны плеера, и каждый
+  // из них продолжал бы играть видео (звук из нескольких сразу, свой ExoPlayer
+  // с буфером и MediaCodec-сессией на каждый).
+  const openFranchisePart = useCallback(
+    (part: FranchisePart) => {
+      if (!part.url || part.isCurrent) return;
+      navigation.replace('Player', {
+        movie: {
+          id: part.url.split('/').filter(Boolean).pop() || part.url,
+          title: part.title,
+          year: part.year?.match(/\d{4}/)?.[0],
+          rating: part.rating,
+          url: part.url,
+        },
+      });
+    },
+    [navigation],
+  );
+
   const handleDownload = useCallback(async () => {
     if (!videoUrl) return;
 
@@ -689,14 +797,17 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
         videoUrl,
         title: titleParts,
         subtitleUrl: selectedSubtitle?.url,
-        onProgress: ({percent}) => setDownloadPercent(percent),
-        onComplete: item => {
+        onProgress: ({ percent }) => setDownloadPercent(percent),
+        onComplete: (item) => {
           setIsDownloading(false);
           setDownloadPercent(0);
           setPartialSegments(0);
-          Alert.alert('Готово', `Видео сохранено (${item.segmentCount} сегментов).\nМожно смотреть offline.`);
+          Alert.alert(
+            'Готово',
+            `Видео сохранено (${item.segmentCount} сегментов).\nМожно смотреть offline.`,
+          );
         },
-        onError: e => {
+        onError: (e) => {
           setIsDownloading(false);
           setDownloadPercent(0);
           DownloadService.getPartialDownloadCount(titleParts).then(setPartialSegments);
@@ -713,7 +824,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color="#5eb3ff"/>
+        <ActivityIndicator size="large" color={theme.accent} />
         <Text style={styles.loadingText}>Загрузка...</Text>
       </View>
     );
@@ -728,13 +839,18 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
   }
 
   return (
-    <View style={[styles.rootContainer, isLandscape && !isFullscreen && styles.rootContainerLandscape, !isFullscreen && {paddingBottom: insets.bottom}]}>
-
+    <View
+      style={[
+        styles.rootContainer,
+        isLandscape && !isFullscreen && styles.rootContainerLandscape,
+        !isFullscreen && { paddingBottom: insets.bottom },
+      ]}
+    >
       {/* Невидимый WebView для разрешения внешних iframe-плееров */}
       {externalIframeUrl && (
         <WebView
           style={styles.hiddenWebView}
-          source={{uri: externalIframeUrl}}
+          source={{ uri: externalIframeUrl }}
           injectedJavaScript={externalPlayerInjectedJS}
           onMessage={handleExternalPlayerMessage}
           javaScriptEnabled
@@ -744,13 +860,21 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
       )}
 
       {/* Видеоплеер / заглушка */}
-      <View style={isFullscreen ? styles.videoWrapperFullscreen : isLandscape ? styles.videoWrapperLandscape : styles.videoWrapper}>
+      <View
+        style={
+          isFullscreen
+            ? styles.videoWrapperFullscreen
+            : isLandscape
+              ? styles.videoWrapperLandscape
+              : styles.videoWrapper
+        }
+      >
         {videoUrl ? (
           <>
             <View style={styles.videoContainer}>
               <Video
                 ref={videoRef}
-                source={{uri: videoUrl}}
+                source={{ uri: videoUrl }}
                 style={styles.video}
                 controls={true}
                 resizeMode="contain"
@@ -779,15 +903,13 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
           <View style={styles.videoInnerPlaceholder}>
             {loadingVideo ? (
               <>
-                <ActivityIndicator size="large" color="#5eb3ff"/>
-                <Text style={styles.videoPlaceholderText}>
-                  {loadingStatus || 'Загрузка...'}
-                </Text>
+                <ActivityIndicator size="large" color={theme.accent} />
+                <Text style={styles.videoPlaceholderText}>{loadingStatus || 'Загрузка...'}</Text>
               </>
             ) : (
               <Text style={styles.videoPlaceholderText}>
                 Выберите озвучку{movieData.seasons ? ', сезон и серию' : ''}
-                {'\n'}и нажмите "Загрузить видео"
+                {'\n'}и нажмите «Загрузить видео»
               </Text>
             )}
           </View>
@@ -796,7 +918,10 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
 
       {/* Прокручиваемый контент */}
       <ScrollView
-        style={[styles.scrollContainer, isLandscape && !isFullscreen && styles.scrollContainerLandscape]}
+        style={[
+          styles.scrollContainer,
+          isLandscape && !isFullscreen && styles.scrollContainerLandscape,
+        ]}
       >
         <View style={styles.content}>
           {/* Блок с ошибкой */}
@@ -806,10 +931,10 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                 <Text style={styles.errorTitle}>Ошибка</Text>
                 <Text style={styles.errorMessage}>{error}</Text>
                 <TouchableOpacity
-                  style={styles.errorCloseButton}
+                  style={[styles.errorCloseButton, { backgroundColor: theme.accentStrong }]}
                   onPress={() => setError(null)}
                 >
-                  <Text style={styles.errorCloseButtonText}>
+                  <Text style={[styles.errorCloseButtonText, { color: theme.onAccent }]}>
                     Закрыть и попробовать другую серию
                   </Text>
                 </TouchableOpacity>
@@ -827,14 +952,20 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                 <TouchableOpacity
                   style={[
                     styles.selectorButton,
-                    selectedSubtitleIndex === null && styles.selectorButtonActive,
+                    selectedSubtitleIndex === null && {
+                      backgroundColor: theme.accentStrong,
+                      borderColor: theme.accentStrong,
+                    },
                   ]}
-                  onPress={() => { setSelectedSubtitleIndex(null); lastSubtitleTitle.current = null; }}
+                  onPress={() => {
+                    setSelectedSubtitleIndex(null);
+                    lastSubtitleTitle.current = null;
+                  }}
                 >
                   <Text
                     style={[
                       styles.selectorButtonText,
-                      selectedSubtitleIndex === null && styles.selectorButtonTextActive,
+                      selectedSubtitleIndex === null && { color: theme.onAccent },
                     ]}
                   >
                     Выкл
@@ -845,14 +976,20 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                     key={index}
                     style={[
                       styles.selectorButton,
-                      selectedSubtitleIndex === index && styles.selectorButtonActive,
+                      selectedSubtitleIndex === index && {
+                        backgroundColor: theme.accentStrong,
+                        borderColor: theme.accentStrong,
+                      },
                     ]}
-                    onPress={() => { setSelectedSubtitleIndex(index); lastSubtitleTitle.current = sub.title; }}
+                    onPress={() => {
+                      setSelectedSubtitleIndex(index);
+                      lastSubtitleTitle.current = sub.title;
+                    }}
                   >
                     <Text
                       style={[
                         styles.selectorButtonText,
-                        selectedSubtitleIndex === index && styles.selectorButtonTextActive,
+                        selectedSubtitleIndex === index && { color: theme.onAccent },
                       ]}
                     >
                       {sub.title}
@@ -873,14 +1010,17 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                     key={translation.id}
                     style={[
                       styles.selectorButton,
-                      selectedTranslation?.id === translation.id && styles.selectorButtonActive,
+                      selectedTranslation?.id === translation.id && {
+                        backgroundColor: theme.accentStrong,
+                        borderColor: theme.accentStrong,
+                      },
                     ]}
                     onPress={() => setSelectedTranslation(translation)}
                   >
                     <Text
                       style={[
                         styles.selectorButtonText,
-                        selectedTranslation?.id === translation.id && styles.selectorButtonTextActive,
+                        selectedTranslation?.id === translation.id && { color: theme.onAccent },
                       ]}
                     >
                       {translation.title}
@@ -901,14 +1041,17 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                     key={season.id}
                     style={[
                       styles.selectorButton,
-                      selectedSeason?.id === season.id && styles.selectorButtonActive,
+                      selectedSeason?.id === season.id && {
+                        backgroundColor: theme.accentStrong,
+                        borderColor: theme.accentStrong,
+                      },
                     ]}
-                    onPress={() => setSelectedSeason(season)}
+                    onPress={() => handleSeasonSelect(season)}
                   >
                     <Text
                       style={[
                         styles.selectorButtonText,
-                        selectedSeason?.id === season.id && styles.selectorButtonTextActive,
+                        selectedSeason?.id === season.id && { color: theme.onAccent },
                       ]}
                     >
                       {season.title}
@@ -930,8 +1073,10 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                     style={[
                       styles.selectorButton,
                       selectedEpisode?.id === episode.id &&
-                      selectedEpisode?.seasonId === episode.seasonId &&
-                      styles.selectorButtonActive,
+                        selectedEpisode?.seasonId === episode.seasonId && {
+                          backgroundColor: theme.accentStrong,
+                          borderColor: theme.accentStrong,
+                        },
                     ]}
                     onPress={() => setSelectedEpisode(episode)}
                   >
@@ -939,8 +1084,9 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                       style={[
                         styles.selectorButtonText,
                         selectedEpisode?.id === episode.id &&
-                        selectedEpisode?.seasonId === episode.seasonId &&
-                        styles.selectorButtonTextActive,
+                          selectedEpisode?.seasonId === episode.seasonId && {
+                            color: theme.onAccent,
+                          },
                       ]}
                     >
                       {episode.title}
@@ -967,34 +1113,47 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
           <TouchableOpacity
             style={[
               styles.getUrlButton,
-              (loadingVideo || (movieData?.translations && movieData.translations.length > 0 && !selectedTranslation)) && styles.getUrlButtonDisabled,
+              { backgroundColor: theme.accentStrong },
+              (loadingVideo ||
+                (movieData?.translations &&
+                  movieData.translations.length > 0 &&
+                  !selectedTranslation)) &&
+                styles.getUrlButtonDisabled,
             ]}
             onPress={loadVideoUrl}
-            disabled={loadingVideo || (movieData?.translations && movieData.translations.length > 0 && !selectedTranslation)}
+            disabled={
+              loadingVideo ||
+              (movieData?.translations && movieData.translations.length > 0 && !selectedTranslation)
+            }
           >
             {loadingVideo ? (
               <View style={styles.buttonContent}>
-                <ActivityIndicator color="#fff"/>
-                <Text style={[styles.getUrlButtonText, {marginLeft: 8}]}>
+                <ActivityIndicator color="#fff" />
+                <Text style={[styles.getUrlButtonText, { color: theme.onAccent, marginLeft: 8 }]}>
                   Загрузка...
                 </Text>
               </View>
             ) : (
-              <Text style={styles.getUrlButtonText}>
+              <Text style={[styles.getUrlButtonText, { color: theme.onAccent }]}>
                 {videoUrl ? 'Перезагрузить видео' : 'Загрузить видео'}
               </Text>
             )}
           </TouchableOpacity>
 
           {/* Кнопка скачивания */}
-          {videoUrl && (
-            isDownloading ? (
+          {videoUrl &&
+            (isDownloading ? (
               <View style={styles.downloadContainer}>
                 <Text style={styles.downloadLabel}>
                   Скачивание... {downloadPercent.toFixed(2)}%
                 </Text>
                 <View style={styles.progressBarTrack}>
-                  <View style={[styles.progressBarFill, {width: `${downloadPercent}%`}]} />
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      { width: `${downloadPercent}%`, backgroundColor: theme.accent },
+                    ]}
+                  />
                 </View>
                 <TouchableOpacity
                   style={styles.cancelDownloadButton}
@@ -1008,16 +1167,14 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity
-                style={styles.downloadButton}
-                onPress={handleDownload}
-              >
-                <Text style={styles.downloadButtonText}>
-                {partialSegments > 0 ? `⬇ Докачать (${partialSegments} сегм. готово)` : '⬇ Скачать'}
-              </Text>
+              <TouchableOpacity style={styles.downloadButton} onPress={handleDownload}>
+                <Text style={[styles.downloadButtonText, { color: theme.accent }]}>
+                  {partialSegments > 0
+                    ? `⬇ Докачать (${partialSegments} сегм. готово)`
+                    : '⬇ Скачать'}
+                </Text>
               </TouchableOpacity>
-            )
-          )}
+            ))}
 
           {/* Автовоспроизведение (только для сериалов) */}
           {movieData.episodes && movieData.episodes.length > 0 && (
@@ -1027,7 +1184,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
                 <Switch
                   value={autoPlay}
                   onValueChange={setAutoPlay}
-                  trackColor={{false: '#444', true: '#007AFF'}}
+                  trackColor={{ false: '#444', true: theme.accentStrong }}
                   thumbColor={autoPlay ? '#fff' : '#888'}
                 />
               </View>
@@ -1040,6 +1197,51 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({route}) => {
             </View>
           )}
 
+          {/* Все части франшизы */}
+          {movieData.franchise && movieData.franchise.parts.length > 0 && (
+            <View style={styles.franchiseContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.franchiseHeader,
+                  franchiseExpanded && styles.franchiseHeaderExpanded,
+                ]}
+                onPress={() => setFranchiseExpanded((prev) => !prev)}
+              >
+                <Text style={styles.franchiseTitle}>{movieData.franchise.title}</Text>
+                <Text style={[styles.franchiseToggle, { color: theme.accent }]}>
+                  {franchiseExpanded ? '▲' : `▼ ${movieData.franchise.parts.length}`}
+                </Text>
+              </TouchableOpacity>
+              {franchiseExpanded &&
+                movieData.franchise.parts.map((part, index) => (
+                  <TouchableOpacity
+                    key={`${part.num ?? index}-${part.title}`}
+                    style={[
+                      styles.franchiseItem,
+                      part.isCurrent && { backgroundColor: theme.accentSoft },
+                    ]}
+                    onPress={() => openFranchisePart(part)}
+                    disabled={part.isCurrent || !part.url}
+                  >
+                    {part.num ? <Text style={styles.franchiseNum}>{part.num}</Text> : null}
+                    <View style={styles.franchiseItemBody}>
+                      <Text
+                        style={[
+                          styles.franchiseItemTitle,
+                          { color: theme.accent },
+                          part.isCurrent && styles.franchiseItemTitleCurrent,
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {part.title}
+                      </Text>
+                      {part.year ? <Text style={styles.franchiseYear}>{part.year}</Text> : null}
+                    </View>
+                    {part.rating ? <Text style={styles.franchiseRating}>{part.rating}</Text> : null}
+                  </TouchableOpacity>
+                ))}
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -1187,14 +1389,12 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   errorCloseButton: {
-    backgroundColor: '#007AFF',
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
     alignItems: 'center',
   },
   errorCloseButtonText: {
-    color: '#fff',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -1232,16 +1432,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#444',
   },
-  selectorButtonActive: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
   selectorButtonText: {
     fontSize: 14,
     color: '#ffffff',
-  },
-  selectorButtonTextActive: {
-    color: '#fff',
   },
   infoContainer: {
     marginTop: 20,
@@ -1258,7 +1451,6 @@ const styles = StyleSheet.create({
   },
   getUrlButton: {
     marginTop: 20,
-    backgroundColor: '#007AFF',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
@@ -1271,7 +1463,6 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   getUrlButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -1302,6 +1493,70 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#888',
   },
+  franchiseContainer: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: '#2a2a2a',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#3a3a3a',
+  },
+  franchiseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    gap: 10,
+  },
+  franchiseHeaderExpanded: {
+    marginBottom: 10,
+  },
+  franchiseTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  franchiseToggle: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  franchiseItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#3a3a3a',
+    gap: 10,
+  },
+  franchiseNum: {
+    fontSize: 13,
+    color: '#888',
+    minWidth: 22,
+    textAlign: 'center',
+  },
+  franchiseItemBody: {
+    flex: 1,
+  },
+  franchiseItemTitle: {
+    fontSize: 14,
+  },
+  franchiseItemTitleCurrent: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  franchiseYear: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
+  },
+  franchiseRating: {
+    fontSize: 13,
+    color: '#aaa',
+    fontWeight: '600',
+  },
   hiddenWebView: {
     width: 0,
     height: 0,
@@ -1319,7 +1574,6 @@ const styles = StyleSheet.create({
     borderColor: '#444',
   },
   downloadButtonText: {
-    color: '#5eb3ff',
     fontSize: 15,
     fontWeight: '600',
   },
@@ -1345,7 +1599,6 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#5eb3ff',
     borderRadius: 3,
   },
   cancelDownloadButton: {

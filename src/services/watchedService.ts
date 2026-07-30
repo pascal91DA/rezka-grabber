@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {Movie} from '../types/Movie';
+import { Movie } from '../types/Movie';
 
 const KEY = 'watched_v1';
 
@@ -27,7 +27,7 @@ export class WatchedService {
 
   static async add(movie: Movie): Promise<void> {
     const list = await this.getAll();
-    const existing = list.findIndex(i => i.id === movie.id);
+    const existing = list.findIndex((i) => i.id === movie.id);
     const item: WatchedItem = {
       id: movie.id,
       title: movie.title,
@@ -46,13 +46,13 @@ export class WatchedService {
 
   static async remove(id: string): Promise<void> {
     const list = await this.getAll();
-    this.cache = list.filter(i => i.id !== id);
+    this.cache = list.filter((i) => i.id !== id);
     await AsyncStorage.setItem(KEY, JSON.stringify(this.cache));
   }
 
   static async getIds(): Promise<Set<string>> {
     const list = await this.getAll();
-    return new Set(list.map(i => i.id));
+    return new Set(list.map((i) => i.id));
   }
 
   static invalidateCache(): void {

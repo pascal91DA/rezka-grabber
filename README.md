@@ -20,7 +20,7 @@ A React Native (Android) app for searching, watching and downloading movies/seri
 
 ## Build & Tooling
 
-This is a **bare / prebuild React Native project**: the native `android/` folder is committed and the app is built with **Gradle**, *not* with Expo Go or EAS. Expo SDK modules are used as libraries, but there is no managed-workflow QR/Expo Go flow.
+This is a **bare / prebuild React Native project**: the native `android/` folder is committed and the app is built with **Gradle**, _not_ with Expo Go or EAS. Expo SDK modules are used as libraries, but there is no managed-workflow QR/Expo Go flow.
 
 > Only **Android** is wired up (there is no `ios/` folder). Building for iOS would require running a prebuild and a macOS/Xcode toolchain.
 
@@ -89,34 +89,41 @@ npm run test:coverage
 ## How to Use
 
 ### 1. Search
+
 Type a movie or series title in the **Поиск** (Search) tab and run the search. Results appear as cards with poster, title, and year.
 
 ### 2. New Releases
+
 The **Новинки** (New Releases) tab shows the latest titles and can be filtered by category.
 
 ### 3. Continue Watching
+
 If you have a watch history, a **Continue Watching** banner appears at the top of the search screen. Tap it to resume from the last watched episode.
 
 ### 4. Player Screen
+
 Tap any result to open the player. Before playback starts:
 
-| Step | What to do |
-|------|-----------|
-| **Translation** | Pick a dubbing/subtitle track from the horizontal list |
-| **Season** | Select a season (series only) |
-| **Episode** | Select an episode (series only) |
-| **Load** | Tap **Load video** — the app fetches and plays the stream |
+| Step            | What to do                                                |
+| --------------- | --------------------------------------------------------- |
+| **Translation** | Pick a dubbing/subtitle track from the horizontal list    |
+| **Season**      | Select a season (series only)                             |
+| **Episode**     | Select an episode (series only)                           |
+| **Load**        | Tap **Load video** — the app fetches and plays the stream |
 
 - The player retries automatically up to 5 times if a stream URL fails.
 - A quality badge (e.g. `1080p`) is shown in the top-right corner of the video.
 
 ### 5. Auto-play & Sleep Timer
+
 Toggle **Auto-play** to start the next episode automatically when the current one ends. Use the **sleep timer** to stop playback after a set interval or at the end of the current episode.
 
 ### 6. Downloads
+
 Save an HLS stream from the player to the device. Downloaded titles live in the **Загрузки** (Downloads) tab and play through the built-in offline player — no network required.
 
 ### 7. History, Watched & Blacklist
+
 Every successfully loaded video is saved to history. You can mark titles as **watched** or add them to a **blacklist** to hide them from listings.
 
 ## Project Structure
@@ -160,16 +167,16 @@ src/
 
 ## Tech Stack
 
-| Package | Purpose |
-|---------|---------|
-| React Native 0.81 | Cross-platform mobile framework |
-| Expo SDK 54 modules | Native modules (file system, media library, screen orientation, etc.) — bare workflow |
-| React Navigation 7 | Bottom tabs + native stack navigation |
-| react-native-video | Video playback |
-| react-native-webview | WebView (stream extraction / debugging) |
-| axios | HTTP requests |
-| htmlparser2-without-node-native | HTML parsing |
-| AsyncStorage | Local history / watched / blacklist storage |
+| Package                         | Purpose                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------- |
+| React Native 0.81               | Cross-platform mobile framework                                                       |
+| Expo SDK 54 modules             | Native modules (file system, media library, screen orientation, etc.) — bare workflow |
+| React Navigation 7              | Bottom tabs + native stack navigation                                                 |
+| react-native-video              | Video playback                                                                        |
+| react-native-webview            | WebView (stream extraction / debugging)                                               |
+| axios                           | HTTP requests                                                                         |
+| htmlparser2-without-node-native | HTML parsing                                                                          |
+| AsyncStorage                    | Local history / watched / blacklist storage                                           |
 
 ## Notes
 

@@ -24,7 +24,7 @@ describe('parseStreamInfo', () => {
 
     it('правильно извлекает качество и URL', () => {
       const result = parseStreamInfo(DECODED_STREAMS);
-      const q720 = result.streams.find(s => s.quality === '720p');
+      const q720 = result.streams.find((s) => s.quality === '720p');
       expect(q720).toBeDefined();
       expect(q720!.url).toBe('https://cdn.example.com/720p.mp4:hls:manifest.m3u8');
     });
@@ -42,8 +42,7 @@ describe('parseStreamInfo', () => {
     });
 
     it('выбирает 720p если 1080p нет', () => {
-      const input =
-        '[360p]https://cdn.example.com/360p.mp4,[720p]https://cdn.example.com/720p.mp4';
+      const input = '[360p]https://cdn.example.com/360p.mp4,[720p]https://cdn.example.com/720p.mp4';
       const result = parseStreamInfo(input);
       expect(result.selectedStream?.quality).toBe('720p');
     });
@@ -102,9 +101,7 @@ describe('parseStreamInfo', () => {
         '[720p]https://a.com/720.mp4,[1080p]https://a.com/1080.mp4';
       const result = parseStreamInfo(streams4);
       expect(result.streams).toHaveLength(4);
-      expect(result.streams.map(s => s.quality)).toEqual([
-        '360p', '480p', '720p', '1080p',
-      ]);
+      expect(result.streams.map((s) => s.quality)).toEqual(['360p', '480p', '720p', '1080p']);
     });
   });
 });

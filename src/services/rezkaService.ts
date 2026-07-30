@@ -1,9 +1,9 @@
 import axios from 'axios';
-import {Platform} from 'react-native';
-import {Movie} from '../types/Movie';
-import {parseStreamInfo, parseSubtitles, applyUrlFixes} from '../utils/streamParser';
-import type {StreamInfo, SubtitleTrack} from '../types/Stream';
-import {isAnubisChallenge, solveAnubisChallenge} from './anubisService';
+import { Platform } from 'react-native';
+import { Movie } from '../types/Movie';
+import { parseStreamInfo, parseSubtitles, applyUrlFixes } from '../utils/streamParser';
+import type { StreamInfo, SubtitleTrack } from '../types/Stream';
+import { isAnubisChallenge, solveAnubisChallenge } from './anubisService';
 
 const REZKA_URL = 'https://rezka.ag';
 const PROXY_URL = 'http://localhost:3001/proxy';
@@ -11,8 +11,9 @@ const PROXY_URL = 'http://localhost:3001/proxy';
 const BASE_URL = Platform.OS === 'web' ? PROXY_URL : REZKA_URL;
 
 const COMMON_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
   'Accept-Encoding': 'gzip, deflate, br',
 };
@@ -27,7 +28,7 @@ const axiosInstance = axios.create({
 // На web этим занимается прокси (proxy-server.js), поэтому пропускаем.
 axiosInstance.interceptors.response.use(async (response) => {
   if (Platform.OS === 'web') return response;
-  const config = response.config as typeof response.config & {__anubisRetried?: boolean};
+  const config = response.config as typeof response.config & { __anubisRetried?: boolean };
   if (isAnubisChallenge(response.data) && !config.__anubisRetried) {
     await solveAnubisChallenge(response.data);
     config.__anubisRetried = true;
@@ -91,11 +92,32 @@ export interface Episode {
   seasonId: string;
 }
 
+/** Одна часть франшизы из блока "Все части ..." */
+export interface FranchisePart {
+  /** Порядковый номер части внутри франшизы */
+  num?: string;
+  title: string;
+  year?: string;
+  rating?: string;
+  /** У текущей (открытой) части ссылки нет */
+  url?: string;
+  isCurrent: boolean;
+}
+
+export interface Franchise {
+  /** Заголовок блока, например: Все части "Звёздных войн" */
+  title: string;
+  /** Ссылка на страницу франшизы */
+  url?: string;
+  parts: FranchisePart[];
+}
+
 export interface MovieData {
   id: string;
   translations: Translation[];
   seasons?: Season[];
   episodes?: Episode[];
+  franchise?: Franchise;
 }
 
 /**
@@ -106,14 +128,14 @@ export function parseCatalogPage(html: string): Movie[] {
 
   // Находим все блоки элементов каталога по data-url
   const blockRegex = /<div[^>]+class="b-content__inline_item"[^>]+data-url="([^"]*)"[^>]*>/gi;
-  const blockStarts: Array<{url: string; index: number}> = [];
+  const blockStarts: { url: string; index: number }[] = [];
   let m;
   while ((m = blockRegex.exec(html)) !== null) {
-    blockStarts.push({url: m[1], index: m.index + m[0].length});
+    blockStarts.push({ url: m[1], index: m.index + m[0].length });
   }
 
   for (let i = 0; i < blockStarts.length; i++) {
-    const {url: dataUrl, index: startIdx} = blockStarts[i];
+    const { url: dataUrl, index: startIdx } = blockStarts[i];
     const endIdx = i + 1 < blockStarts.length ? blockStarts[i + 1].index : startIdx + 2000;
     const blockHtml = html.slice(startIdx, endIdx);
 
@@ -123,8 +145,10 @@ export function parseCatalogPage(html: string): Movie[] {
     if (poster?.startsWith('//')) poster = 'https:' + poster;
 
     // Название — берём из первой ссылки в блоке ссылки
-    const titleMatch = blockHtml.match(/<div[^>]+class="b-content__inline_item-2"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i)
-      ?? blockHtml.match(/<a[^>]+href="[^"]*"[^>]*>\s*([^<\n]{2,80}?)\s*<\/a>/i);
+    const titleMatch =
+      blockHtml.match(
+        /<div[^>]+class="b-content__inline_item-2"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
+      ) ?? blockHtml.match(/<a[^>]+href="[^"]*"[^>]*>\s*([^<\n]{2,80}?)\s*<\/a>/i);
     const title = titleMatch?.[1]?.trim();
 
     // Рейтинг
@@ -137,7 +161,10 @@ export function parseCatalogPage(html: string): Movie[] {
 
     // Описание и год из .misc
     const miscMatch = blockHtml.match(/class="misc"[^>]*>([\s\S]*?)<\/div>/i);
-    const miscRaw = miscMatch?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const miscRaw = miscMatch?.[1]
+      ?.replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     const description = miscRaw || undefined;
     const yearMatch = miscRaw?.match(/(\d{4})/);
     const year = yearMatch?.[1];
@@ -146,17 +173,135 @@ export function parseCatalogPage(html: string): Movie[] {
     const id = dataUrl.split('/').filter(Boolean).pop() || `movie-${movies.length}`;
 
     if (dataUrl && title) {
-      movies.push({id, title, year, rating, url: fullUrl, poster, description, contentType});
+      movies.push({ id, title, year, rating, url: fullUrl, poster, description, contentType });
     }
   }
 
   return movies;
 }
 
+/** Убирает теги и раскрывает базовые HTML-сущности. */
+function stripTags(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&laquo;/g, '«')
+    .replace(/&raquo;/g, '»')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Возвращает содержимое <div>, открывающийся тег которого начинается на openTagStart,
+ * с учётом вложенности. Нужно, чтобы не «съесть» конец блока регуляркой.
+ */
+function extractBalancedDiv(html: string, openTagStart: number): string {
+  const tagRegex = /<\/?div\b[^>]*>/gi;
+  tagRegex.lastIndex = openTagStart;
+  let depth = 0;
+  let contentStart = -1;
+  let match;
+
+  while ((match = tagRegex.exec(html)) !== null) {
+    if (match[0].startsWith('</')) {
+      depth--;
+      if (depth === 0) return html.slice(contentStart, match.index);
+    } else {
+      if (depth === 0) contentStart = match.index + match[0].length;
+      depth++;
+    }
+  }
+
+  return contentStart >= 0 ? html.slice(contentStart) : '';
+}
+
+/**
+ * Парсит блок "Все части %наименование%" (франшизу) со страницы фильма/сериала.
+ * Разметка: <div class="b-sidetitle"><a class="b-post__franchise_link_title">…</a></div>
+ *           <div class="b-post__partcontent"><div class="b-post__partcontent_item" data-url="…">…
+ * У текущей части класс `current` и нет data-url.
+ */
+export function parseFranchise(html: string): Franchise | undefined {
+  // \b после partcontent не сработает внутри partcontent_item — `_` тоже словесный символ
+  const blockMatch = /<div[^>]*class="[^"]*\bb-post__partcontent\b[^"]*"[^>]*>/i.exec(html);
+  if (!blockMatch) return undefined;
+
+  const block = extractBalancedDiv(html, blockMatch.index);
+
+  const itemRegex = /<div[^>]*class="[^"]*\bb-post__partcontent_item\b[^"]*"[^>]*>/gi;
+  const itemStarts: { tag: string; contentStart: number }[] = [];
+  let m;
+  while ((m = itemRegex.exec(block)) !== null) {
+    itemStarts.push({ tag: m[0], contentStart: m.index + m[0].length });
+  }
+  if (itemStarts.length === 0) return undefined;
+
+  const parts: FranchisePart[] = [];
+  for (let i = 0; i < itemStarts.length; i++) {
+    const { tag, contentStart } = itemStarts[i];
+    const endIdx =
+      i + 1 < itemStarts.length
+        ? itemStarts[i + 1].contentStart - itemStarts[i + 1].tag.length
+        : block.length;
+    const itemHtml = block.slice(contentStart, endIdx);
+
+    const titleRaw = itemHtml.match(/class="[^"]*\btd title\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1];
+    const title = titleRaw ? stripTags(titleRaw) : '';
+    if (!title) continue;
+
+    const dataUrl = tag.match(/data-url="([^"]+)"/i)?.[1];
+    const href = titleRaw?.match(/<a[^>]+href="([^"]+)"/i)?.[1];
+    const rawUrl = dataUrl || href;
+    const url = rawUrl
+      ? rawUrl.startsWith('http')
+        ? rawUrl
+        : `${REZKA_URL}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`
+      : undefined;
+
+    const num = itemHtml.match(/class="[^"]*\btd num\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1];
+    const year = itemHtml.match(/class="[^"]*\btd year\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1];
+    const rating = itemHtml.match(
+      /class="[^"]*\btd rating\b[^"]*"[^>]*>[\s\S]*?<i[^>]*>([\s\S]*?)<\/i>/i,
+    )?.[1];
+
+    parts.push({
+      num: num ? stripTags(num) || undefined : undefined,
+      title,
+      year: year ? stripTags(year) || undefined : undefined,
+      rating: rating ? stripTags(rating) || undefined : undefined,
+      url,
+      isCurrent: /\bcurrent\b/i.test(tag) || !url,
+    });
+  }
+
+  if (parts.length === 0) return undefined;
+
+  const titleLink = html.match(
+    /<a([^>]*class="[^"]*\bb-post__franchise_link_title\b[^"]*"[^>]*)>([\s\S]*?)<\/a>/i,
+  );
+  const franchiseTitle = titleLink ? stripTags(titleLink[2]) : 'Все части';
+  const franchiseHref = titleLink?.[1].match(/href="([^"]+)"/i)?.[1];
+
+  return {
+    title: franchiseTitle,
+    url: franchiseHref
+      ? franchiseHref.startsWith('http')
+        ? franchiseHref
+        : `${REZKA_URL}${franchiseHref}`
+      : undefined,
+    parts,
+  };
+}
+
 export class RezkaService {
   static async getMovieData(url: string): Promise<MovieData> {
     const response = await axiosInstance.get(toProxyUrl(url), {
-      headers: {'Referer': REZKA_URL},
+      headers: { Referer: REZKA_URL },
     });
 
     const html = response.data;
@@ -201,8 +346,14 @@ export class RezkaService {
       if (translatorId) {
         const slug = slugMap[translatorId];
         const ozMatch = html.match(/озвучке\s+([^<"]+)/i);
-        const title = ozMatch?.[1]?.trim() || slug?.split('-').slice(1).join('-') || `Перевод ${translatorId}`;
-        console.log('[getMovieData] single translator fallback: id=%s slug=%s title=%s', translatorId, slug, title);
+        const title =
+          ozMatch?.[1]?.trim() || slug?.split('-').slice(1).join('-') || `Перевод ${translatorId}`;
+        console.log(
+          '[getMovieData] single translator fallback: id=%s slug=%s title=%s',
+          translatorId,
+          slug,
+          title,
+        );
         translations.push({ id: translatorId, title, slug });
       }
     }
@@ -225,16 +376,19 @@ export class RezkaService {
       while ((match = seasonRegex.exec(seasonsList)) !== null) {
         if (seenSeasons.has(match[1])) continue;
         seenSeasons.add(match[1]);
-        seasons.push({id: match[1], title: match[2].trim()});
+        seasons.push({ id: match[1], title: match[2].trim() });
       }
     }
 
     const episodes: Episode[] = [];
-    const episodesBlockMatch = html.match(/<div id="simple-episodes-tabs"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i);
+    const episodesBlockMatch = html.match(
+      /<div id="simple-episodes-tabs"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i,
+    );
 
     if (episodesBlockMatch) {
       const episodesList = episodesBlockMatch[1];
-      const episodeRegex = /<(?:a|li)[^>]*data-season_id="(\d+)"[^>]*data-episode_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
+      const episodeRegex =
+        /<(?:a|li)[^>]*data-season_id="(\d+)"[^>]*data-episode_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
       let match;
       const seenEpisodes = new Set<string>();
 
@@ -255,6 +409,7 @@ export class RezkaService {
       translations,
       seasons: seasons.length > 0 ? seasons : undefined,
       episodes: episodes.length > 0 ? episodes : undefined,
+      franchise: parseFranchise(html),
     };
   }
 
@@ -292,7 +447,7 @@ export class RezkaService {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'X-Requested-With': 'XMLHttpRequest',
-        'Referer': REZKA_URL,
+        Referer: REZKA_URL,
       },
     });
 
@@ -305,8 +460,9 @@ export class RezkaService {
     const streamInfo = parseStreamInfo(data.url);
     const subtitles = parseSubtitles(data.subtitle);
     // subtitle_lns содержит маппинг {"Русский":"ru","English":"en",...}
-    const lns: Record<string, string> = typeof data.subtitle_lns === 'object' && data.subtitle_lns ? data.subtitle_lns : {};
-    subtitles.forEach(s => {
+    const lns: Record<string, string> =
+      typeof data.subtitle_lns === 'object' && data.subtitle_lns ? data.subtitle_lns : {};
+    subtitles.forEach((s) => {
       if (lns[s.title]) s.language = lns[s.title];
     });
     streamInfo.subtitles = subtitles;
@@ -341,10 +497,19 @@ export class RezkaService {
       pageUrl = movieUrl;
     }
 
-    console.log('[getStreamsViaHtml] slug:', slug, 'season:', season, 'episode:', episode, '→ URL:', pageUrl);
+    console.log(
+      '[getStreamsViaHtml] slug:',
+      slug,
+      'season:',
+      season,
+      'episode:',
+      episode,
+      '→ URL:',
+      pageUrl,
+    );
 
     const response = await axiosInstance.get(toProxyUrl(pageUrl), {
-      headers: {'Referer': REZKA_URL},
+      headers: { Referer: REZKA_URL },
     });
 
     const streams = extractStreamsFromHtml(response.data);
@@ -365,7 +530,7 @@ export class RezkaService {
   static async getSeasonsAndEpisodes(
     movieId: string,
     translationId: string,
-  ): Promise<{seasons: Season[]; episodes: Episode[]}> {
+  ): Promise<{ seasons: Season[]; episodes: Episode[] }> {
     const baseUrl = Platform.OS === 'web' ? PROXY_URL : REZKA_URL;
     const url = `${baseUrl}/ajax/get_cdn_series/`;
 
@@ -378,7 +543,7 @@ export class RezkaService {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'X-Requested-With': 'XMLHttpRequest',
-        'Referer': REZKA_URL,
+        Referer: REZKA_URL,
       },
     });
 
@@ -389,17 +554,20 @@ export class RezkaService {
     const seasonRegex = /<(?:a|li)[^>]*data-tab_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
     let m;
     while ((m = seasonRegex.exec(html)) !== null) {
-      seasons.push({id: m[1], title: m[2].trim()});
+      seasons.push({ id: m[1], title: m[2].trim() });
     }
 
     const episodes: Episode[] = [];
-    const episodeRegex = /<(?:a|li)[^>]*data-season_id="(\d+)"[^>]*data-episode_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
+    const episodeRegex =
+      /<(?:a|li)[^>]*data-season_id="(\d+)"[^>]*data-episode_id="(\d+)"[^>]*>([^<]+)<\/(?:a|li)>/gi;
     while ((m = episodeRegex.exec(html)) !== null) {
-      episodes.push({id: m[2], title: m[3].trim(), seasonId: m[1]});
+      episodes.push({ id: m[2], title: m[3].trim(), seasonId: m[1] });
     }
 
-    console.log(`[getSeasonsAndEpisodes] translation=${translationId} → ${seasons.length} seasons, ${episodes.length} episodes`);
-    return {seasons, episodes};
+    console.log(
+      `[getSeasonsAndEpisodes] translation=${translationId} → ${seasons.length} seasons, ${episodes.length} episodes`,
+    );
+    return { seasons, episodes };
   }
 
   /**
@@ -422,7 +590,9 @@ export class RezkaService {
         if (!this.isExternalPlayerUrl(ajaxUrl)) {
           return ajaxResult;
         }
-        console.warn('[getAvailableStreams] AJAX returned external player URL, falling back to HTML');
+        console.warn(
+          '[getAvailableStreams] AJAX returned external player URL, falling back to HTML',
+        );
       } catch (ajaxErr) {
         console.warn('[getAvailableStreams] AJAX failed, falling back to HTML:', ajaxErr);
       }
@@ -438,7 +608,8 @@ export class RezkaService {
   private static isDirectVideoUrl(url: string): boolean {
     // Прямые видео-потоки: MP4, HLS, DASH и т.п.
     if (/\.(mp4|m3u8|ts|webm|mpd)(\?|:|$)/i.test(url)) return true;
-    if (url.includes(':hls:') || url.includes('/manifest') || url.includes('/playlist')) return true;
+    if (url.includes(':hls:') || url.includes('/manifest') || url.includes('/playlist'))
+      return true;
     // iframe/embed — внешний плеер, не прямой поток
     if (/\/(iframe|embed)(\/|$)/.test(url)) return false;
     // Неизвестный формат — пробуем играть
@@ -453,10 +624,15 @@ export class RezkaService {
     season?: string,
     episode?: string,
     maxRetries: number = 3,
-    onProgress?: (attempt: number, maxAttempts: number, quality: string | null) => void
+    onProgress?: (attempt: number, maxAttempts: number, quality: string | null) => void,
   ): Promise<{ url: string; quality: string; attempts: number; subtitles: SubtitleTrack[] }> {
     const qualityPriority = ['1080p Ultra', '1080p', '720p', '480p', '360p', 'unknown'];
-    let bestResult: { url: string; quality: string; attempts: number; subtitles: SubtitleTrack[] } | null = null;
+    let bestResult: {
+      url: string;
+      quality: string;
+      attempts: number;
+      subtitles: SubtitleTrack[];
+    } | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -469,8 +645,12 @@ export class RezkaService {
           episode,
         );
 
-        console.log(`[getVideoUrlWithRetry] Attempt ${attempt}: found ${streamInfo.streams.length} streams`);
-        streamInfo.streams.forEach(s => console.log(`  - ${s.quality}: ${s.url.substring(0, 80)}...`));
+        console.log(
+          `[getVideoUrlWithRetry] Attempt ${attempt}: found ${streamInfo.streams.length} streams`,
+        );
+        streamInfo.streams.forEach((s) =>
+          console.log(`  - ${s.quality}: ${s.url.substring(0, 80)}...`),
+        );
 
         const currentBest = streamInfo.selectedStream;
         const currentQuality = currentBest?.quality || 'unknown';
@@ -479,7 +659,9 @@ export class RezkaService {
 
         if (currentBest) {
           const currentPriority = qualityPriority.indexOf(currentQuality);
-          const bestPriority = bestResult ? qualityPriority.indexOf(bestResult.quality) : qualityPriority.length;
+          const bestPriority = bestResult
+            ? qualityPriority.indexOf(bestResult.quality)
+            : qualityPriority.length;
 
           if (currentPriority < bestPriority) {
             bestResult = {
@@ -501,7 +683,6 @@ export class RezkaService {
           if (bestResult) return bestResult;
           throw new Error('Не удалось получить ссылку на видео после всех попыток');
         }
-
       } catch (error) {
         console.error(`[getVideoUrlWithRetry] Attempt ${attempt} failed:`, error);
 
@@ -516,19 +697,24 @@ export class RezkaService {
           if (bestResult) return bestResult;
           throw error;
         }
-        await new Promise(resolve => setTimeout(resolve, 800));
+        await new Promise((resolve) => setTimeout(resolve, 800));
       }
     }
 
     throw new Error('Не удалось получить ссылку на видео');
   }
 
-  static async getNewReleases(basePath: string, filter: string, page: number = 1): Promise<Movie[]> {
-    const url = page === 1
-      ? `${REZKA_URL}/${basePath}/?filter=${filter}`
-      : `${REZKA_URL}/${basePath}/page/${page}/?filter=${filter}`;
+  static async getNewReleases(
+    basePath: string,
+    filter: string,
+    page: number = 1,
+  ): Promise<Movie[]> {
+    const url =
+      page === 1
+        ? `${REZKA_URL}/${basePath}/?filter=${filter}`
+        : `${REZKA_URL}/${basePath}/page/${page}/?filter=${filter}`;
     const response = await axiosInstance.get(toProxyUrl(url), {
-      headers: {'Referer': REZKA_URL},
+      headers: { Referer: REZKA_URL },
     });
     return parseCatalogPage(response.data);
   }
@@ -546,9 +732,9 @@ export class RezkaService {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
           'X-Requested-With': 'XMLHttpRequest',
-          'Accept': 'text/html, */*; q=0.01',
+          Accept: 'text/html, */*; q=0.01',
         },
-      }
+      },
     );
 
     return this.parseMoviesFromHtml(response.data);
@@ -558,7 +744,8 @@ export class RezkaService {
     const movies: Movie[] = [];
 
     try {
-      const itemRegex = /<li><a href="([^"]+)">([^<]*)<span class="enty">([^<]+)<\/span>([^<]*)\(([^)]+)\)([^<]*)<span class="rating">.*?>([\d.]+)<\/i>/gi;
+      const itemRegex =
+        /<li><a href="([^"]+)">([^<]*)<span class="enty">([^<]+)<\/span>([^<]*)\(([^)]+)\)([^<]*)<span class="rating">.*?>([\d.]+)<\/i>/gi;
 
       let match;
       while ((match = itemRegex.exec(html)) !== null) {
@@ -581,7 +768,10 @@ export class RezkaService {
           if (yearMatch) year = yearMatch[1];
         }
 
-        const fullTitle = [titlePrefix, title, titleSuffix].filter(s => s).join(' ').trim();
+        const fullTitle = [titlePrefix, title, titleSuffix]
+          .filter((s) => s)
+          .join(' ')
+          .trim();
 
         if (url && title) {
           movies.push({

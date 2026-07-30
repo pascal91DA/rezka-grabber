@@ -1,11 +1,19 @@
 import React from 'react';
-import {Alert, Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {Movie} from '../types/Movie';
-import {RootStackParamList} from '../types/navigation';
-import {BlacklistService} from '../services/blacklistService';
-import {WatchedService} from '../services/watchedService';
+import {
+  Alert,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Movie } from '../types/Movie';
+import { RootStackParamList } from '../types/navigation';
+import { BlacklistService } from '../services/blacklistService';
+import { WatchedService } from '../services/watchedService';
 
 const H_PADDING = 8;
 const GAP = 6;
@@ -18,9 +26,9 @@ interface Props {
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
-export const MovieGridCard: React.FC<Props> = ({movie, numColumns, onBlacklisted}) => {
+export const MovieGridCard: React.FC<Props> = ({ movie, numColumns, onBlacklisted }) => {
   const navigation = useNavigation<NavProp>();
-  const {width} = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const cardWidth = (width - H_PADDING * 2 - GAP * (numColumns - 1)) / numColumns;
   const posterHeight = Math.round(cardWidth * 1.5);
 
@@ -41,26 +49,22 @@ export const MovieGridCard: React.FC<Props> = ({movie, numColumns, onBlacklisted
           onBlacklisted?.(movie.id);
         },
       },
-      {text: 'Отмена', style: 'cancel'},
+      { text: 'Отмена', style: 'cancel' },
     ]);
   };
 
   return (
     <TouchableOpacity
-      style={[styles.card, {width: cardWidth}]}
-      onPress={() => navigation.navigate('Player', {movie})}
+      style={[styles.card, { width: cardWidth }]}
+      onPress={() => navigation.navigate('Player', { movie })}
       onLongPress={handleLongPress}
       delayLongPress={400}
       activeOpacity={0.75}
     >
       {/* Постер */}
-      <View style={[styles.posterWrapper, {height: posterHeight}]}>
+      <View style={[styles.posterWrapper, { height: posterHeight }]}>
         {movie.poster ? (
-          <Image
-            source={{uri: movie.poster}}
-            style={styles.poster}
-            resizeMode="cover"
-          />
+          <Image source={{ uri: movie.poster }} style={styles.poster} resizeMode="cover" />
         ) : (
           <View style={styles.posterPlaceholder}>
             <Text style={styles.posterPlaceholderText}>🎬</Text>
@@ -80,13 +84,16 @@ export const MovieGridCard: React.FC<Props> = ({movie, numColumns, onBlacklisted
 
       {/* Подпись */}
       <View style={styles.info}>
-        <Text style={styles.title} numberOfLines={2}>{movie.title}</Text>
-        {movie.description
-          ? <Text style={styles.description} numberOfLines={2}>{movie.description}</Text>
-          : movie.year
-            ? <Text style={styles.year}>{movie.year}</Text>
-            : null
-        }
+        <Text style={styles.title} numberOfLines={2}>
+          {movie.title}
+        </Text>
+        {movie.description ? (
+          <Text style={styles.description} numberOfLines={2}>
+            {movie.description}
+          </Text>
+        ) : movie.year ? (
+          <Text style={styles.year}>{movie.year}</Text>
+        ) : null}
       </View>
     </TouchableOpacity>
   );

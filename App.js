@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TimerProvider } from './src/context/TimerContext';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { SearchScreen } from './src/screens/SearchScreen';
 import { NewReleasesScreen } from './src/screens/NewReleasesScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
@@ -27,6 +28,8 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 function MainTabs() {
+  const { accent } = useTheme();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -36,7 +39,7 @@ function MainTabs() {
           borderTopColor: '#2a2a2a',
           borderTopWidth: 1,
         },
-        tabBarActiveTintColor: '#5eb3ff',
+        tabBarActiveTintColor: accent,
         tabBarInactiveTintColor: '#666',
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
@@ -54,10 +57,15 @@ function MainTabs() {
           return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarLabel:
-          route.name === 'Search' ? 'Поиск' :
-          route.name === 'NewReleases' ? 'Новинки' :
-          route.name === 'History' ? 'История' :
-          route.name === 'Downloads' ? 'Загрузки' : 'Настройки',
+          route.name === 'Search'
+            ? 'Поиск'
+            : route.name === 'NewReleases'
+              ? 'Новинки'
+              : route.name === 'History'
+                ? 'История'
+                : route.name === 'Downloads'
+                  ? 'Загрузки'
+                  : 'Настройки',
       })}
     >
       <Tab.Screen name="Search" component={SearchScreen} />
@@ -69,57 +77,64 @@ function MainTabs() {
   );
 }
 
+function AppContent() {
+  const { accent } = useTheme();
+  const navTheme = { ...DarkTheme, colors: { ...DarkTheme.colors, primary: accent } };
+
+  return (
+    <NavigationContainer theme={navTheme}>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: '#1a1a1a' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { color: '#fff' },
+        }}
+      >
+        <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
+        <Stack.Screen
+          name="Player"
+          component={PlayerScreen}
+          options={{
+            title: 'Плеер',
+            headerBackTitle: 'Назад',
+          }}
+        />
+        <Stack.Screen
+          name="OfflinePlayer"
+          component={OfflinePlayerScreen}
+          options={({ route }) => ({
+            title: route.params.title,
+            headerBackTitle: 'Назад',
+          })}
+        />
+        <Stack.Screen
+          name="DebugWebView"
+          component={DebugWebViewScreen}
+          options={{ title: 'Отладка WebView', headerBackTitle: 'Назад' }}
+        />
+        <Stack.Screen
+          name="Blacklist"
+          component={BlacklistScreen}
+          options={{ title: 'Чёрный список', headerBackTitle: 'Назад' }}
+        />
+        <Stack.Screen
+          name="Watched"
+          component={WatchedScreen}
+          options={{ title: 'Просмотрено', headerBackTitle: 'Назад' }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
-      <TimerProvider>
-      <NavigationContainer theme={DarkTheme}>
-        <Stack.Navigator
-          screenOptions={{
-            headerStyle: { backgroundColor: '#1a1a1a' },
-            headerTintColor: '#fff',
-            headerTitleStyle: { color: '#fff' },
-          }}
-        >
-          <Stack.Screen
-            name="Main"
-            component={MainTabs}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="Player"
-            component={PlayerScreen}
-            options={{
-              title: 'Плеер',
-              headerBackTitle: 'Назад',
-            }}
-          />
-          <Stack.Screen
-            name="OfflinePlayer"
-            component={OfflinePlayerScreen}
-            options={({ route }) => ({
-              title: route.params.title,
-              headerBackTitle: 'Назад',
-            })}
-          />
-          <Stack.Screen
-            name="DebugWebView"
-            component={DebugWebViewScreen}
-            options={{ title: 'Отладка WebView', headerBackTitle: 'Назад' }}
-          />
-          <Stack.Screen
-            name="Blacklist"
-            component={BlacklistScreen}
-            options={{ title: 'Чёрный список', headerBackTitle: 'Назад' }}
-          />
-          <Stack.Screen
-            name="Watched"
-            component={WatchedScreen}
-            options={{ title: 'Просмотрено', headerBackTitle: 'Назад' }}
-          />
-        </Stack.Navigator>
-      </NavigationContainer>
-      </TimerProvider>
+      <ThemeProvider>
+        <TimerProvider>
+          <AppContent />
+        </TimerProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

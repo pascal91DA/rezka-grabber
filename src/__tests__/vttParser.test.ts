@@ -1,4 +1,4 @@
-import {parseVtt, getCurrentCue} from '../utils/vttParser';
+import { parseVtt, getCurrentCue } from '../utils/vttParser';
 
 // ─── parseVtt ─────────────────────────────────────────────────────────────────
 
@@ -10,7 +10,7 @@ describe('parseVtt', () => {
 Привет, мир!`;
     const cues = parseVtt(vtt);
     expect(cues).toHaveLength(1);
-    expect(cues[0]).toEqual({start: 1, end: 3, text: 'Привет, мир!'});
+    expect(cues[0]).toEqual({ start: 1, end: 3, text: 'Привет, мир!' });
   });
 
   it('парсит несколько кью', () => {
@@ -154,9 +154,9 @@ NOTE это комментарий
 
 describe('getCurrentCue', () => {
   const cues = [
-    {start: 1, end: 3, text: 'Первый'},
-    {start: 5, end: 8, text: 'Второй'},
-    {start: 10, end: 12, text: 'Третий'},
+    { start: 1, end: 3, text: 'Первый' },
+    { start: 5, end: 8, text: 'Второй' },
+    { start: 10, end: 12, text: 'Третий' },
   ];
 
   it('возвращает текст когда время внутри кью', () => {

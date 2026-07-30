@@ -1,5 +1,5 @@
 import axios from 'axios';
-import {sha256Bytes} from '../utils/sha256';
+import { sha256Bytes } from '../utils/sha256';
 
 /**
  * Обход anti-bot защиты Anubis (https://github.com/TecharoHQ/anubis) на устройстве.
@@ -19,7 +19,7 @@ const USER_AGENT =
 
 // Отдельный axios без интерцептора rezkaService — чтобы вызов pass-challenge
 // не рекурсивно не попадал снова в обработчик challenge.
-const rawAxios = axios.create({headers: {'User-Agent': USER_AGENT}, timeout: 30000});
+const rawAxios = axios.create({ headers: { 'User-Agent': USER_AGENT }, timeout: 30000 });
 
 // Одновременно решаем challenge только один раз: параллельные запросы ждут общий промис.
 let solving: Promise<void> | null = null;
@@ -40,7 +40,7 @@ function bytesToHex(bytes: Uint8Array): string {
  * нулевых байт (+ старший полубайт следующего байта при нечётной сложности).
  * Идентично проверке в sha256-purejs.mjs воркере Anubis.
  */
-function solvePow(randomData: string, difficulty: number): {hash: string; nonce: number} {
+function solvePow(randomData: string, difficulty: number): { hash: string; nonce: number } {
   const fullZeroBytes = Math.floor(difficulty / 2);
   const halfByte = difficulty % 2 !== 0;
   for (let nonce = 0; ; nonce++) {
@@ -53,7 +53,7 @@ function solvePow(randomData: string, difficulty: number): {hash: string; nonce:
       }
     }
     if (ok && halfByte && h[fullZeroBytes] >> 4 !== 0) ok = false;
-    if (ok) return {hash: bytesToHex(h), nonce};
+    if (ok) return { hash: bytesToHex(h), nonce };
   }
 }
 
@@ -61,7 +61,7 @@ async function doSolve(challengeHtml: string): Promise<void> {
   const m = challengeHtml.match(/<script id="anubis_challenge"[^>]*>([\s\S]*?)<\/script>/);
   if (!m) throw new Error('anubis_challenge не найден на странице проверки');
 
-  const {challenge, rules} = JSON.parse(m[1]);
+  const { challenge, rules } = JSON.parse(m[1]);
   const algorithm: string = rules.algorithm;
   if (algorithm !== 'fast' && algorithm !== 'slow') {
     // fast/slow используют один и тот же PoW; иные алгоритмы нам неизвестны.
@@ -69,7 +69,7 @@ async function doSolve(challengeHtml: string): Promise<void> {
   }
 
   const t0 = Date.now();
-  const {hash, nonce} = solvePow(challenge.randomData, rules.difficulty);
+  const { hash, nonce } = solvePow(challenge.randomData, rules.difficulty);
   const elapsed = Math.max(Date.now() - t0, 1);
   console.log(`[anubis] solved difficulty=${rules.difficulty} nonce=${nonce} in ${elapsed}ms`);
 
@@ -83,7 +83,7 @@ async function doSolve(challengeHtml: string): Promise<void> {
 
   // Ответ 302 + Set-Cookie(auth); нативный cookie-jar сохранит cookie автоматически.
   await rawAxios.get(`${REZKA_URL}${PASS_CHALLENGE_PATH}?${params.toString()}`, {
-    headers: {Accept: 'text/html'},
+    headers: { Accept: 'text/html' },
   });
   console.log('[anubis] challenge passed, auth-cookie сохранена сетевым слоем');
 }
