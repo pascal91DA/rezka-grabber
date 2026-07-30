@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {HistoryService, HistoryEntry, LastWatch} from '../services/historyService';
-import {Movie} from '../types/Movie';
+import { HistoryService, HistoryEntry, LastWatch } from '../services/historyService';
+import { Movie } from '../types/Movie';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -31,7 +31,7 @@ beforeEach(async () => {
 
 describe('HistoryService.entryKey', () => {
   it('возвращает ключ только по id фильма', () => {
-    const key = HistoryService.entryKey({movie: makeMovie('123')});
+    const key = HistoryService.entryKey({ movie: makeMovie('123') });
     expect(key).toBe('123::::::');
   });
 
@@ -46,13 +46,13 @@ describe('HistoryService.entryKey', () => {
   });
 
   it('разные movieId дают разные ключи', () => {
-    const k1 = HistoryService.entryKey({movie: makeMovie('1')});
-    const k2 = HistoryService.entryKey({movie: makeMovie('2')});
+    const k1 = HistoryService.entryKey({ movie: makeMovie('1') });
+    const k2 = HistoryService.entryKey({ movie: makeMovie('2') });
     expect(k1).not.toBe(k2);
   });
 
   it('одинаковые данные дают одинаковый ключ', () => {
-    const entry = {movie: makeMovie('99'), translationId: '56', seasonId: '1', episodeId: '3'};
+    const entry = { movie: makeMovie('99'), translationId: '56', seasonId: '1', episodeId: '3' };
     expect(HistoryService.entryKey(entry)).toBe(HistoryService.entryKey(entry));
   });
 
@@ -129,13 +129,13 @@ describe('HistoryService.addToHistory', () => {
   });
 
   it('дублирующая запись перемещается в начало с обновлённым timestamp', async () => {
-    const entry = makeEntry('5', {translationId: '56', seasonId: '1', episodeId: '3'});
+    const entry = makeEntry('5', { translationId: '56', seasonId: '1', episodeId: '3' });
     await HistoryService.addToHistory(entry);
     await HistoryService.addToHistory(makeEntry('99'));
 
-    const tsBefore = (await HistoryService.getHistory()).find(e => e.movie.id === '5')!.timestamp;
+    const tsBefore = (await HistoryService.getHistory()).find((e) => e.movie.id === '5')!.timestamp;
 
-    await new Promise(r => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 5));
     await HistoryService.addToHistory(entry);
 
     const history = await HistoryService.getHistory();
@@ -146,7 +146,7 @@ describe('HistoryService.addToHistory', () => {
 
   it('история не превышает 50 записей', async () => {
     // Заполняем 50 записей
-    const entries = Array.from({length: 50}, (_, i) => makeEntry(`movie-${i}`));
+    const entries = Array.from({ length: 50 }, (_, i) => makeEntry(`movie-${i}`));
     for (const e of entries) {
       await HistoryService.addToHistory(e);
     }
@@ -185,7 +185,7 @@ describe('HistoryService.removeFromHistory', () => {
 
     const history = await HistoryService.getHistory();
     expect(history).toHaveLength(2);
-    const ids = history.map(e => e.movie.id);
+    const ids = history.map((e) => e.movie.id);
     expect(ids).toContain('10');
     expect(ids).toContain('30');
     expect(ids).not.toContain('20');
@@ -193,9 +193,7 @@ describe('HistoryService.removeFromHistory', () => {
 
   it('нет ошибки при удалении несуществующего ключа', async () => {
     await HistoryService.addToHistory(makeEntry('1'));
-    await expect(
-      HistoryService.removeFromHistory('non-existent-key::::'),
-    ).resolves.not.toThrow();
+    await expect(HistoryService.removeFromHistory('non-existent-key::::')).resolves.not.toThrow();
 
     const history = await HistoryService.getHistory();
     expect(history).toHaveLength(1);
@@ -247,7 +245,7 @@ describe('HistoryService.saveLastWatch / getLastWatch', () => {
   });
 
   it('saveLastWatch также добавляет запись в историю', async () => {
-    await HistoryService.saveLastWatch({movie: makeMovie('88', 'Дюна')});
+    await HistoryService.saveLastWatch({ movie: makeMovie('88', 'Дюна') });
 
     const history = await HistoryService.getHistory();
     expect(history).toHaveLength(1);
@@ -255,7 +253,7 @@ describe('HistoryService.saveLastWatch / getLastWatch', () => {
   });
 
   it('clearLastWatch удаляет последний просмотр', async () => {
-    await HistoryService.saveLastWatch({movie: makeMovie('99')});
+    await HistoryService.saveLastWatch({ movie: makeMovie('99') });
     await HistoryService.clearLastWatch();
 
     const result = await HistoryService.getLastWatch();

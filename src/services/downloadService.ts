@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import {File} from 'expo-file-system';
+import { File } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
-import {downloadHls, HlsDownloadProgress, countExistingSegments} from './hlsDownloader';
+import { downloadHls, HlsDownloadProgress, countExistingSegments } from './hlsDownloader';
 
 export interface DownloadProgress {
   percent: number;
@@ -32,7 +32,7 @@ const DOWNLOADS_DIR = FileSystem.documentDirectory + 'downloads/';
 async function ensureBaseDir(): Promise<void> {
   const info = await FileSystem.getInfoAsync(DOWNLOADS_DIR);
   if (!info.exists) {
-    await FileSystem.makeDirectoryAsync(DOWNLOADS_DIR, {intermediates: true});
+    await FileSystem.makeDirectoryAsync(DOWNLOADS_DIR, { intermediates: true });
   }
 }
 
@@ -57,7 +57,7 @@ export class DownloadService {
     onComplete: (item: DownloadedItem) => void;
     onError: (e: Error) => void;
   }): Promise<() => void> {
-    const {videoUrl, title, subtitleUrl, onProgress, onComplete, onError} = params;
+    const { videoUrl, title, subtitleUrl, onProgress, onComplete, onError } = params;
 
     await ensureBaseDir();
 
@@ -65,17 +65,18 @@ export class DownloadService {
     const itemDir = `${DOWNLOADS_DIR}${safe}/`;
     const subtitleUri = subtitleUrl ? `${itemDir}subtitles.vtt` : undefined;
 
-    const cancelRef = {current: false};
+    const cancelRef = { current: false };
 
     // Запускаем асинхронно, не ждём завершения здесь
     (async () => {
       try {
         // Скачиваем субтитры параллельно с началом загрузки
-        const subtitlePromise = subtitleUrl && subtitleUri
-          ? FileSystem.downloadAsync(subtitleUrl, subtitleUri).catch(e => {
-              console.warn('[Download] Subtitle failed:', e);
-            })
-          : Promise.resolve();
+        const subtitlePromise =
+          subtitleUrl && subtitleUri
+            ? FileSystem.downloadAsync(subtitleUrl, subtitleUri).catch((e) => {
+                console.warn('[Download] Subtitle failed:', e);
+              })
+            : Promise.resolve();
 
         const result = await downloadHls({
           m3u8Url: videoUrl,
@@ -153,8 +154,8 @@ export class DownloadService {
     const text = await FileSystem.readAsStringAsync(localM3u8Uri);
     return text
       .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length > 0 && !l.startsWith('#'));
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith('#'));
   }
 
   /**
@@ -171,7 +172,7 @@ export class DownloadService {
     title: string;
     onProgress?: (p: ExportProgress) => void;
   }): Promise<void> {
-    const {localM3u8Uri, title, onProgress} = params;
+    const { localM3u8Uri, title, onProgress } = params;
 
     // Запрашиваем доступ к медиатеке заранее
     const perm = await MediaLibrary.requestPermissionsAsync();
@@ -229,7 +230,7 @@ export class DownloadService {
 
   static async deleteDownload(localM3u8Uri: string): Promise<void> {
     const dir = localM3u8Uri.substring(0, localM3u8Uri.lastIndexOf('/') + 1);
-    await FileSystem.deleteAsync(dir, {idempotent: true});
+    await FileSystem.deleteAsync(dir, { idempotent: true });
   }
 
   /**

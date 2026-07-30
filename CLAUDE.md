@@ -25,9 +25,11 @@ Tests live in `src/__tests__/**/*.test.ts`. Build tooling needs JDK 17 and the A
 ## Release APK
 
 Built directly with Gradle (no CI/EAS in regular use):
+
 ```
 cd android && ./gradlew assembleRelease
 ```
+
 Output: `android/app/build/outputs/apk/release/app-release.apk`. Release currently uses the debug keystore — swap before any real distribution.
 
 ## Gotchas

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -10,21 +10,23 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import {useFocusEffect, useNavigation} from '@react-navigation/native';
-import {useBottomTabBarHeight} from '@react-navigation/bottom-tabs';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {MovieCard} from '../components/MovieCard';
-import {RezkaService} from '../services/rezkaService';
-import {HistoryService, HistoryEntry, LastWatch} from '../services/historyService';
-import {Movie} from '../types/Movie';
-import {RootStackParamList} from '../types/navigation';
-import {BlacklistService} from '../services/blacklistService';
-import {WatchedService} from '../services/watchedService';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MovieCard } from '../components/MovieCard';
+import { RezkaService } from '../services/rezkaService';
+import { HistoryService, HistoryEntry, LastWatch } from '../services/historyService';
+import { Movie } from '../types/Movie';
+import { RootStackParamList } from '../types/navigation';
+import { BlacklistService } from '../services/blacklistService';
+import { WatchedService } from '../services/watchedService';
+import { useTheme } from '../context/ThemeContext';
 
 export const SearchScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, 'Main'>>();
   const tabBarHeight = useBottomTabBarHeight();
+  const theme = useTheme();
   const [query, setQuery] = useState('');
   const [movies, setMovies] = useState<Movie[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -32,14 +34,7 @@ export const SearchScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Загружаем историю при фокусе на экране
-  useFocusEffect(
-    React.useCallback(() => {
-      loadHistory();
-    }, [])
-  );
-
-  const loadHistory = async () => {
+  const loadHistory = React.useCallback(async () => {
     try {
       const [entries, savedLastWatch] = await Promise.all([
         HistoryService.getHistory(),
@@ -47,7 +42,7 @@ export const SearchScreen: React.FC = () => {
       ]);
       // Показываем уникальные фильмы (первое вхождение каждого movie.id)
       const seen = new Set<string>();
-      const unique = entries.filter(e => {
+      const unique = entries.filter((e) => {
         if (seen.has(e.movie.id)) return false;
         seen.add(e.movie.id);
         return true;
@@ -57,7 +52,14 @@ export const SearchScreen: React.FC = () => {
     } catch (error) {
       console.error('Error loading history:', error);
     }
-  };
+  }, []);
+
+  // Загружаем историю при фокусе на экране
+  useFocusEffect(
+    React.useCallback(() => {
+      loadHistory();
+    }, [loadHistory]),
+  );
 
   const handleContinueWatching = () => {
     if (!lastWatch) return;
@@ -92,7 +94,7 @@ export const SearchScreen: React.FC = () => {
       const results = await RezkaService.searchMovies(searchQuery);
       const [bl, wl] = await Promise.all([BlacklistService.getIds(), WatchedService.getIds()]);
       const hidden = new Set([...bl, ...wl]);
-      setMovies(results.filter(m => !hidden.has(m.id)));
+      setMovies(results.filter((m) => !hidden.has(m.id)));
 
       if (results.length === 0) {
         setError('Фильмы не найдены');
@@ -109,7 +111,7 @@ export const SearchScreen: React.FC = () => {
     if (loading) {
       return (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#5eb3ff"/>
+          <ActivityIndicator size="large" color={theme.accent} />
           <Text style={styles.loadingText}>Поиск...</Text>
         </View>
       );
@@ -127,9 +129,7 @@ export const SearchScreen: React.FC = () => {
     if (!query.trim() && history.length === 0) {
       return (
         <View style={styles.centerContainer}>
-          <Text style={styles.placeholderText}>
-            Введите название фильма для поиска
-          </Text>
+          <Text style={styles.placeholderText}>Введите название фильма для поиска</Text>
         </View>
       );
     }
@@ -145,7 +145,7 @@ export const SearchScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="light-content"/>
+      <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Поиск фильмов</Text>
       </View>
@@ -172,18 +172,17 @@ export const SearchScreen: React.FC = () => {
       {/* Баннер "Продолжить просмотр" */}
       {lastWatch && !query.trim() && (
         <TouchableOpacity
-          style={styles.continueWatchingBanner}
+          style={[styles.continueWatchingBanner, { borderColor: theme.accentStrong }]}
           onPress={handleContinueWatching}
           activeOpacity={0.8}
         >
           {lastWatch.movie.poster && (
-            <Image
-              source={{uri: lastWatch.movie.poster}}
-              style={styles.continueWatchingPoster}
-            />
+            <Image source={{ uri: lastWatch.movie.poster }} style={styles.continueWatchingPoster} />
           )}
           <View style={styles.continueWatchingInfo}>
-            <Text style={styles.continueWatchingLabel}>Продолжить просмотр</Text>
+            <Text style={[styles.continueWatchingLabel, { color: theme.accentStrong }]}>
+              Продолжить просмотр
+            </Text>
             <Text style={styles.continueWatchingTitle} numberOfLines={1}>
               {lastWatch.movie.title}
             </Text>
@@ -202,7 +201,7 @@ export const SearchScreen: React.FC = () => {
           <TouchableOpacity
             style={styles.continueWatchingClose}
             onPress={handleDismissLastWatch}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Text style={styles.continueWatchingCloseText}>✕</Text>
           </TouchableOpacity>
@@ -211,18 +210,24 @@ export const SearchScreen: React.FC = () => {
 
       <FlatList
         data={query.trim() ? movies : history}
-        keyExtractor={(item) => query.trim() ? (item as Movie).id : (item as HistoryEntry).movie.id}
-        renderItem={({item}) => <MovieCard movie={query.trim() ? item as Movie : (item as HistoryEntry).movie}/>}
+        keyExtractor={(item) =>
+          query.trim() ? (item as Movie).id : (item as HistoryEntry).movie.id
+        }
+        renderItem={({ item }) => (
+          <MovieCard movie={query.trim() ? (item as Movie) : (item as HistoryEntry).movie} />
+        )}
         contentContainerStyle={[
           (query.trim() ? movies.length === 0 : history.length === 0)
             ? styles.emptyList
             : styles.list,
-          {paddingBottom: tabBarHeight},
+          { paddingBottom: tabBarHeight },
         ]}
         ListHeaderComponent={
           !query.trim() && history.length > 0 ? (
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Недавно просмотренные</Text>
+              <Text style={[styles.sectionTitle, { color: theme.accent }]}>
+                Недавно просмотренные
+              </Text>
             </View>
           ) : null
         }
@@ -327,7 +332,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#5eb3ff',
   },
   continueWatchingBanner: {
     flexDirection: 'row',
@@ -339,7 +343,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#007AFF',
   },
   continueWatchingPoster: {
     width: 50,
@@ -354,7 +357,6 @@ const styles = StyleSheet.create({
   },
   continueWatchingLabel: {
     fontSize: 12,
-    color: '#007AFF',
     fontWeight: '600',
     marginBottom: 4,
   },

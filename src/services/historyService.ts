@@ -31,7 +31,9 @@ export class HistoryService {
   /**
    * Составной ключ для уникальной идентификации записи
    */
-  static entryKey(entry: Pick<HistoryEntry, 'movie' | 'translationId' | 'seasonId' | 'episodeId'>): string {
+  static entryKey(
+    entry: Pick<HistoryEntry, 'movie' | 'translationId' | 'seasonId' | 'episodeId'>,
+  ): string {
     return [
       entry.movie.id,
       entry.translationId || '',
@@ -48,9 +50,10 @@ export class HistoryService {
       const data = JSON.parse(historyJson);
       if (!Array.isArray(data) || data.length === 0) return [];
 
-      // Миграция старого формата Movie[] → HistoryEntry[]
+      // Миграция старого формата Movie[] → HistoryEntry[].
+      // timestamp: 0 — время просмотра неизвестно, UI такие записи показывает без даты
       if ('id' in data[0] && !('movie' in data[0])) {
-        return (data as Movie[]).map(movie => ({ movie, timestamp: Date.now() }));
+        return (data as Movie[]).map((movie) => ({ movie, timestamp: 0 }));
       }
 
       return data as HistoryEntry[];
@@ -70,7 +73,7 @@ export class HistoryService {
       const key = this.entryKey(entry);
 
       // Убираем существующую запись с таким же ключом
-      const filtered = history.filter(e => this.entryKey(e) !== key);
+      const filtered = history.filter((e) => this.entryKey(e) !== key);
 
       const newEntry: HistoryEntry = { ...entry, timestamp: Date.now() };
       const newHistory = [newEntry, ...filtered].slice(0, MAX_HISTORY_ITEMS);
@@ -88,7 +91,7 @@ export class HistoryService {
   static async removeFromHistory(key: string): Promise<void> {
     try {
       const history = await this.getHistory();
-      const newHistory = history.filter(e => this.entryKey(e) !== key);
+      const newHistory = history.filter((e) => this.entryKey(e) !== key);
       await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
       console.log(`Removed history entry: ${key}`);
     } catch (error) {

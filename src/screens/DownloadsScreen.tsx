@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,14 +9,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import {useFocusEffect, useNavigation} from '@react-navigation/native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {Ionicons} from '@expo/vector-icons';
-import {DownloadService, DownloadedItem} from '../services/downloadService';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { DownloadService, DownloadedItem } from '../services/downloadService';
+import { useTheme } from '../context/ThemeContext';
 
 export const DownloadsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
   const [items, setItems] = useState<DownloadedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -39,7 +41,7 @@ export const DownloadsScreen: React.FC = () => {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
-    return items.filter(i => i.title.toLowerCase().includes(q));
+    return items.filter((i) => i.title.toLowerCase().includes(q));
   }, [items, query]);
 
   const handlePlay = (item: DownloadedItem) => {
@@ -52,13 +54,13 @@ export const DownloadsScreen: React.FC = () => {
 
   const handleExport = async (item: DownloadedItem) => {
     if (exporting[item.localM3u8Uri] !== undefined) return;
-    setExporting(prev => ({...prev, [item.localM3u8Uri]: 0}));
+    setExporting((prev) => ({ ...prev, [item.localM3u8Uri]: 0 }));
     try {
       await DownloadService.exportToDevice({
         localM3u8Uri: item.localM3u8Uri,
         title: item.title,
-        onProgress: p => {
-          setExporting(prev => ({...prev, [item.localM3u8Uri]: p.percent}));
+        onProgress: (p) => {
+          setExporting((prev) => ({ ...prev, [item.localM3u8Uri]: p.percent }));
         },
       });
       Alert.alert('Готово', `«${item.title}» сохранён в галерею устройства.`);
@@ -66,8 +68,8 @@ export const DownloadsScreen: React.FC = () => {
       const msg = e instanceof Error ? e.message : 'Не удалось сохранить файл';
       Alert.alert('Ошибка', msg);
     } finally {
-      setExporting(prev => {
-        const next = {...prev};
+      setExporting((prev) => {
+        const next = { ...prev };
         delete next[item.localM3u8Uri];
         return next;
       });
@@ -76,13 +78,13 @@ export const DownloadsScreen: React.FC = () => {
 
   const handleDelete = (item: DownloadedItem) => {
     Alert.alert('Удалить', `Удалить "${item.title}"?`, [
-      {text: 'Отмена', style: 'cancel'},
+      { text: 'Отмена', style: 'cancel' },
       {
         text: 'Удалить',
         style: 'destructive',
         onPress: async () => {
           await DownloadService.deleteDownload(item.localM3u8Uri);
-          setItems(prev => prev.filter(i => i.localM3u8Uri !== item.localM3u8Uri));
+          setItems((prev) => prev.filter((i) => i.localM3u8Uri !== item.localM3u8Uri));
         },
       },
     ]);
@@ -90,14 +92,14 @@ export const DownloadsScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <View style={[styles.centered, {paddingTop: insets.top}]}>
-        <ActivityIndicator size="large" color="#5eb3ff" />
+      <View style={[styles.centered, { paddingTop: insets.top }]}>
+        <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, {paddingTop: insets.top}]}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Поиск */}
       <View style={styles.searchBar}>
         <Ionicons name="search" size={16} color="#666" style={styles.searchIcon} />
@@ -110,7 +112,10 @@ export const DownloadsScreen: React.FC = () => {
           clearButtonMode="while-editing"
         />
         {query.length > 0 && (
-          <TouchableOpacity onPress={() => setQuery('')} hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+          <TouchableOpacity
+            onPress={() => setQuery('')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Ionicons name="close-circle" size={16} color="#555" />
           </TouchableOpacity>
         )}
@@ -136,18 +141,20 @@ export const DownloadsScreen: React.FC = () => {
           style={styles.list}
           contentContainerStyle={styles.listContent}
           data={filtered}
-          keyExtractor={item => item.localM3u8Uri}
+          keyExtractor={(item) => item.localM3u8Uri}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
-          renderItem={({item}) => (
+          renderItem={({ item }) => (
             <TouchableOpacity style={styles.item} onPress={() => handlePlay(item)}>
               <View style={styles.itemIcon}>
-                <Ionicons name="film-outline" size={28} color="#5eb3ff" />
+                <Ionicons name="film-outline" size={28} color={theme.accent} />
               </View>
               <View style={styles.itemInfo}>
-                <Text style={styles.itemTitle} numberOfLines={2}>{item.title}</Text>
+                <Text style={styles.itemTitle} numberOfLines={2}>
+                  {item.title}
+                </Text>
                 <View style={styles.itemMeta}>
                   {item.subtitleUri && (
-                    <View style={styles.subtitleBadge}>
+                    <View style={[styles.subtitleBadge, { backgroundColor: theme.accentMuted }]}>
                       <Text style={styles.subtitleBadgeText}>SUB</Text>
                     </View>
                   )}
@@ -158,8 +165,8 @@ export const DownloadsScreen: React.FC = () => {
               </View>
               {exporting[item.localM3u8Uri] !== undefined ? (
                 <View style={styles.exportButton}>
-                  <ActivityIndicator size="small" color="#5eb3ff" />
-                  <Text style={styles.exportPercent}>
+                  <ActivityIndicator size="small" color={theme.accent} />
+                  <Text style={[styles.exportPercent, { color: theme.accent }]}>
                     {Math.round(exporting[item.localM3u8Uri])}%
                   </Text>
                 </View>
@@ -167,15 +174,15 @@ export const DownloadsScreen: React.FC = () => {
                 <TouchableOpacity
                   style={styles.exportButton}
                   onPress={() => handleExport(item)}
-                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="save-outline" size={20} color="#5eb3ff" />
+                  <Ionicons name="save-outline" size={20} color={theme.accent} />
                 </TouchableOpacity>
               )}
               <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={() => handleDelete(item)}
-                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
               </TouchableOpacity>
@@ -272,7 +279,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   subtitleBadge: {
-    backgroundColor: '#2a6a9e',
     borderRadius: 3,
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -295,7 +301,6 @@ const styles = StyleSheet.create({
   },
   exportPercent: {
     fontSize: 12,
-    color: '#5eb3ff',
     minWidth: 28,
   },
   deleteButton: {

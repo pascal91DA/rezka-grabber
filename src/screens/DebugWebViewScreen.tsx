@@ -1,15 +1,9 @@
 import React, { useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Share,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Share } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Clipboard from 'expo-clipboard';
 import { Movie } from '../types/Movie';
+import { useTheme } from '../context/ThemeContext';
 
 interface DebugWebViewScreenProps {
   route: {
@@ -30,6 +24,7 @@ interface CapturedRequest {
 
 export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route }) => {
   const { movie } = route.params;
+  const theme = useTheme();
   const webViewRef = useRef<WebView>(null);
   const [capturedRequests, setCapturedRequests] = useState<CapturedRequest[]>([]);
   const [isCapturing, setIsCapturing] = useState(true);
@@ -106,7 +101,7 @@ export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route })
       const message = JSON.parse(event.nativeEvent.data);
 
       if (message.type === 'request' && isCapturing) {
-        setCapturedRequests(prev => [message.data, ...prev]);
+        setCapturedRequests((prev) => [message.data, ...prev]);
       } else if (message.type === 'log') {
         console.log('[WebView]', message.message);
       }
@@ -123,7 +118,7 @@ export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route })
 
   const shareAllRequests = async () => {
     const text = capturedRequests
-      .map(req => `[${req.timestamp}] ${req.method} ${req.url}`)
+      .map((req) => `[${req.timestamp}] ${req.method} ${req.url}`)
       .join('\n\n');
 
     try {
@@ -143,7 +138,7 @@ export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route })
   return (
     <View style={styles.container}>
       {/* WebView с загруженной страницей фильма */}
-      <View style={styles.webViewContainer}>
+      <View style={[styles.webViewContainer, { borderBottomColor: theme.accentStrong }]}>
         <WebView
           ref={webViewRef}
           source={{ uri: movie.url }}
@@ -160,18 +155,13 @@ export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route })
       <View style={styles.controlPanel}>
         <View style={styles.controlRow}>
           <TouchableOpacity
-            style={[styles.controlButton, isCapturing && styles.controlButtonActive]}
+            style={[styles.controlButton, isCapturing && { backgroundColor: theme.accentStrong }]}
             onPress={() => setIsCapturing(!isCapturing)}
           >
-            <Text style={styles.controlButtonText}>
-              {isCapturing ? '⏸ Пауза' : '▶ Захват'}
-            </Text>
+            <Text style={styles.controlButtonText}>{isCapturing ? '⏸ Пауза' : '▶ Захват'}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={clearRequests}
-          >
+          <TouchableOpacity style={styles.controlButton} onPress={clearRequests}>
             <Text style={styles.controlButtonText}>🗑 Очистить</Text>
           </TouchableOpacity>
 
@@ -184,9 +174,7 @@ export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route })
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.counterText}>
-          Перехвачено: {capturedRequests.length} запросов
-        </Text>
+        <Text style={styles.counterText}>Перехвачено: {capturedRequests.length} запросов</Text>
       </View>
 
       {/* Список перехваченных запросов */}
@@ -194,7 +182,7 @@ export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route })
         {capturedRequests.map((request) => (
           <TouchableOpacity
             key={request.id}
-            style={styles.requestItem}
+            style={[styles.requestItem, { borderLeftColor: theme.accentStrong }]}
             onPress={() => copyRequestToClipboard(request)}
             onLongPress={() => copyRequestToClipboard(request)}
           >
@@ -210,9 +198,11 @@ export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route })
             </Text>
             {request.requestData && (
               <Text style={styles.requestData} numberOfLines={2}>
-                Data: {typeof request.requestData === 'string'
+                Data:{' '}
+                {typeof request.requestData === 'string'
                   ? request.requestData.substring(0, 100)
-                  : JSON.stringify(request.requestData).substring(0, 100)}...
+                  : JSON.stringify(request.requestData).substring(0, 100)}
+                ...
               </Text>
             )}
           </TouchableOpacity>
@@ -239,7 +229,6 @@ const styles = StyleSheet.create({
   webViewContainer: {
     height: '40%',
     borderBottomWidth: 2,
-    borderBottomColor: '#007AFF',
   },
   controlPanel: {
     backgroundColor: '#2a2a2a',
@@ -261,9 +250,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
     alignItems: 'center',
   },
-  controlButtonActive: {
-    backgroundColor: '#007AFF',
-  },
   controlButtonText: {
     color: '#fff',
     fontSize: 12,
@@ -284,7 +270,6 @@ const styles = StyleSheet.create({
     marginVertical: 4,
     borderRadius: 8,
     borderLeftWidth: 3,
-    borderLeftColor: '#007AFF',
   },
   requestHeader: {
     flexDirection: 'row',

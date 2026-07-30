@@ -1,5 +1,5 @@
-import {parseCatalogPage} from '../services/rezkaService';
-import {CATEGORIES} from '../constants/categories';
+import { parseCatalogPage } from '../services/rezkaService';
+import { CATEGORIES } from '../constants/categories';
 
 // ─── Вспомогательные функции ──────────────────────────────────────────────
 
@@ -37,9 +37,9 @@ function makeItemBlock({
 }
 
 function makePage(items: ItemOptions[]): string {
-  return `<html><body><div class="b-content__inline_items">${
-    items.map(makeItemBlock).join('\n')
-  }</div></body></html>`;
+  return `<html><body><div class="b-content__inline_items">${items
+    .map(makeItemBlock)
+    .join('\n')}</div></body></html>`;
 }
 
 // ─── parseCatalogPage ─────────────────────────────────────────────────────
@@ -64,9 +64,9 @@ describe('parseCatalogPage', () => {
 
   it('парсит несколько элементов каталога', () => {
     const html = makePage([
-      {dataUrl: '/films/1-first.html', title: 'Первый'},
-      {dataUrl: '/films/2-second.html', title: 'Второй'},
-      {dataUrl: '/series/3-third.html', title: 'Третий'},
+      { dataUrl: '/films/1-first.html', title: 'Первый' },
+      { dataUrl: '/films/2-second.html', title: 'Второй' },
+      { dataUrl: '/series/3-third.html', title: 'Третий' },
     ]);
     const result = parseCatalogPage(html);
 
@@ -77,70 +77,70 @@ describe('parseCatalogPage', () => {
   });
 
   it('добавляет https: к URL постера начинающемуся с //', () => {
-    const html = makePage([{posterUrl: '//cdn.rezka.ag/posters/test.jpg'}]);
+    const html = makePage([{ posterUrl: '//cdn.rezka.ag/posters/test.jpg' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].poster).toBe('https://cdn.rezka.ag/posters/test.jpg');
   });
 
   it('не изменяет уже абсолютный URL постера', () => {
-    const html = makePage([{posterUrl: 'https://cdn.rezka.ag/posters/test.jpg'}]);
+    const html = makePage([{ posterUrl: 'https://cdn.rezka.ag/posters/test.jpg' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].poster).toBe('https://cdn.rezka.ag/posters/test.jpg');
   });
 
   it('правильно формирует fullUrl для относительного data-url', () => {
-    const html = makePage([{dataUrl: '/films/fantasy/99-some-film.html'}]);
+    const html = makePage([{ dataUrl: '/films/fantasy/99-some-film.html' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].url).toBe('https://rezka.ag/films/fantasy/99-some-film.html');
   });
 
   it('не изменяет уже абсолютный data-url', () => {
-    const html = makePage([{dataUrl: 'https://rezka.ag/films/1-film.html'}]);
+    const html = makePage([{ dataUrl: 'https://rezka.ag/films/1-film.html' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].url).toBe('https://rezka.ag/films/1-film.html');
   });
 
   it('использует последний сегмент data-url как id', () => {
-    const html = makePage([{dataUrl: '/films/fantasy/86824-legenda-2025.html'}]);
+    const html = makePage([{ dataUrl: '/films/fantasy/86824-legenda-2025.html' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].id).toBe('86824-legenda-2025.html');
   });
 
   it('извлекает описание из блока misc', () => {
-    const html = makePage([{misc: '2023, Фэнтези, Боевик'}]);
+    const html = makePage([{ misc: '2023, Фэнтези, Боевик' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].description).toBe('2023, Фэнтези, Боевик');
   });
 
   it('description undefined если блок misc отсутствует', () => {
-    const html = makePage([{misc: ''}]);
+    const html = makePage([{ misc: '' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].description).toBeUndefined();
   });
 
   it('извлекает год из строки misc', () => {
-    const html = makePage([{misc: 'Комедия, 2021, США'}]);
+    const html = makePage([{ misc: 'Комедия, 2021, США' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].year).toBe('2021');
   });
 
   it('year undefined если в misc нет четырёхзначного числа', () => {
-    const html = makePage([{misc: 'Комедия, США'}]);
+    const html = makePage([{ misc: 'Комедия, США' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].year).toBeUndefined();
   });
 
   it('contentType undefined если тег entity отсутствует', () => {
-    const html = makePage([{contentType: ''}]);
+    const html = makePage([{ contentType: '' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].contentType).toBeUndefined();
@@ -157,21 +157,21 @@ describe('parseCatalogPage', () => {
   });
 
   it('poster undefined если тег img отсутствует', () => {
-    const html = makePage([{posterUrl: ''}]);
+    const html = makePage([{ posterUrl: '' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].poster).toBeUndefined();
   });
 
   it('rating undefined если рейтинг отсутствует', () => {
-    const html = makePage([{rating: ''}]);
+    const html = makePage([{ rating: '' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].rating).toBeUndefined();
   });
 
   it('strips HTML-теги из misc при формировании description', () => {
-    const html = makePage([{misc: '<span>2022</span>, <b>Драма</b>'}]);
+    const html = makePage([{ misc: '<span>2022</span>, <b>Драма</b>' }]);
     const result = parseCatalogPage(html);
 
     expect(result[0].description).toBe('2022 , Драма');
@@ -187,45 +187,45 @@ describe('CATEGORIES', () => {
   });
 
   it('все категории имеют непустой label', () => {
-    CATEGORIES.forEach(cat => {
+    CATEGORIES.forEach((cat) => {
       expect(cat.label.trim().length).toBeGreaterThan(0);
     });
   });
 
   it('все категории имеют непустой basePath', () => {
-    CATEGORIES.forEach(cat => {
+    CATEGORIES.forEach((cat) => {
       expect(cat.basePath.trim().length).toBeGreaterThan(0);
     });
   });
 
   it('все категории имеют непустой filter', () => {
-    CATEGORIES.forEach(cat => {
+    CATEGORIES.forEach((cat) => {
       expect(cat.filter.trim().length).toBeGreaterThan(0);
     });
   });
 
   it('первые 3 категории используют basePath "new"', () => {
     const newCats = CATEGORIES.slice(0, 3);
-    newCats.forEach(cat => {
+    newCats.forEach((cat) => {
       expect(cat.basePath).toBe('new');
     });
   });
 
   it('присутствуют фильтры last, popular, watching', () => {
-    const filters = CATEGORIES.map(c => c.filter);
+    const filters = CATEGORIES.map((c) => c.filter);
     expect(filters).toContain('last');
     expect(filters).toContain('popular');
     expect(filters).toContain('watching');
   });
 
   it('все labels уникальны', () => {
-    const labels = CATEGORIES.map(c => c.label);
+    const labels = CATEGORIES.map((c) => c.label);
     const unique = new Set(labels);
     expect(unique.size).toBe(CATEGORIES.length);
   });
 
   it('категории содержат films, series, cartoons, animation', () => {
-    const paths = CATEGORIES.map(c => c.basePath);
+    const paths = CATEGORIES.map((c) => c.basePath);
     expect(paths).toContain('films');
     expect(paths).toContain('series');
     expect(paths).toContain('cartoons');

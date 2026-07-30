@@ -3,6 +3,7 @@ const https = require('https');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const url = require('url');
+const { Buffer } = require('buffer');
 
 const PORT = 3001;
 const TARGET_HOST = 'rezka.ag';
@@ -28,7 +29,8 @@ function storeSetCookies(setCookie) {
     if (idx < 0) continue;
     const name = pair.slice(0, idx).trim();
     const value = pair.slice(idx + 1);
-    if (value === '') delete cookieJar[name]; // истёкшая cookie — удаляем
+    if (value === '')
+      delete cookieJar[name]; // истёкшая cookie — удаляем
     else cookieJar[name] = value;
   }
 }
@@ -96,10 +98,16 @@ function solvePow(randomData, difficulty) {
   const fullZeroBytes = Math.floor(difficulty / 2);
   const halfByte = difficulty % 2 !== 0;
   for (let nonce = 0; ; nonce++) {
-    const h = crypto.createHash('sha256').update(randomData + nonce).digest();
+    const h = crypto
+      .createHash('sha256')
+      .update(randomData + nonce)
+      .digest();
     let ok = true;
     for (let i = 0; i < fullZeroBytes; i++) {
-      if (h[i] !== 0) { ok = false; break; }
+      if (h[i] !== 0) {
+        ok = false;
+        break;
+      }
     }
     if (ok && halfByte && h[fullZeroBytes] >> 4 !== 0) ok = false;
     if (ok) return { hash: h.toString('hex'), nonce };

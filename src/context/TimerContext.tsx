@@ -1,5 +1,6 @@
-import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
-import {Alert, BackHandler, Modal, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { BackHandler, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useTheme } from './ThemeContext';
 
 interface TimerContextValue {
   timeLeft: number | null;
@@ -14,31 +15,32 @@ const TimerContext = createContext<TimerContextValue>({
 });
 
 export const TIMER_PRESETS = [
-  {label: '5 мин', seconds: 5 * 60},
-  {label: '30 мин', seconds: 30 * 60},
-  {label: '1 ч', seconds: 60 * 60},
-  {label: '1.5 ч', seconds: 90 * 60},
-  {label: '2 ч', seconds: 120 * 60},
+  { label: '5 мин', seconds: 5 * 60 },
+  { label: '30 мин', seconds: 30 * 60 },
+  { label: '1 ч', seconds: 60 * 60 },
+  { label: '1.5 ч', seconds: 90 * 60 },
+  { label: '2 ч', seconds: 120 * 60 },
 ];
 
 export function useTimer() {
   return useContext(TimerContext);
 }
 
-export function TimerProvider({children}: {children: React.ReactNode}) {
+export function TimerProvider({ children }: { children: React.ReactNode }) {
+  const theme = useTheme();
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [showWarning, setShowWarning] = useState(false);
-  const warningShownAt = useRef<number | null>(null);
+  const [warningDismissed, setWarningDismissed] = useState(false);
+
+  // Предупреждение выводится на последней минуте, пока его не закрыли вручную.
+  const showWarning = timeLeft !== null && timeLeft > 0 && timeLeft <= 60 && !warningDismissed;
 
   const cancelTimer = useCallback(() => {
     setTimeLeft(null);
-    setShowWarning(false);
-    warningShownAt.current = null;
+    setWarningDismissed(false);
   }, []);
 
   const setTimer = useCallback((seconds: number) => {
-    warningShownAt.current = null;
-    setShowWarning(false);
+    setWarningDismissed(false);
     setTimeLeft(seconds);
   }, []);
 
@@ -46,18 +48,12 @@ export function TimerProvider({children}: {children: React.ReactNode}) {
     if (timeLeft === null) return;
 
     if (timeLeft <= 0) {
-      setShowWarning(false);
       BackHandler.exitApp();
       return;
     }
 
-    if (timeLeft <= 60 && warningShownAt.current === null) {
-      warningShownAt.current = timeLeft;
-      setShowWarning(true);
-    }
-
     const tick = setTimeout(() => {
-      setTimeLeft(prev => (prev !== null ? prev - 1 : null));
+      setTimeLeft((prev) => (prev !== null ? prev - 1 : null));
     }, 1000);
 
     return () => clearTimeout(tick);
@@ -68,29 +64,27 @@ export function TimerProvider({children}: {children: React.ReactNode}) {
   };
 
   const handleWarningContinue = () => {
-    setShowWarning(false);
+    setWarningDismissed(true);
   };
 
   return (
-    <TimerContext.Provider value={{timeLeft, setTimer, cancelTimer}}>
+    <TimerContext.Provider value={{ timeLeft, setTimer, cancelTimer }}>
       {children}
 
-      <Modal
-        visible={showWarning}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-      >
+      <Modal visible={showWarning} transparent animationType="fade" statusBarTranslucent>
         <View style={styles.overlay}>
           <View style={styles.dialog}>
             <Text style={styles.dialogTitle}>Таймер сна</Text>
             <Text style={styles.dialogBody}>
-              Приложение закроется через{' '}
-              <Text style={styles.dialogCountdown}>{timeLeft ?? 0}</Text> сек.
+              Приложение закроется через <Text style={styles.dialogCountdown}>{timeLeft ?? 0}</Text>{' '}
+              сек.
             </Text>
             <View style={styles.dialogButtons}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={handleWarningCancel}>
-                <Text style={styles.cancelBtnText}>Отмена</Text>
+              <TouchableOpacity
+                style={[styles.cancelBtn, { backgroundColor: theme.accentStrong }]}
+                onPress={handleWarningCancel}
+              >
+                <Text style={[styles.cancelBtnText, { color: theme.onAccent }]}>Отмена</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.okBtn} onPress={handleWarningContinue}>
                 <Text style={styles.okBtnText}>Понятно</Text>
@@ -111,7 +105,7 @@ function formatTime(s: number): string {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
-export {formatTime};
+export { formatTime };
 
 const styles = StyleSheet.create({
   overlay: {
@@ -151,13 +145,11 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     flex: 1,
-    backgroundColor: '#007AFF',
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
   },
   cancelBtnText: {
-    color: '#fff',
     fontSize: 15,
     fontWeight: '600',
   },

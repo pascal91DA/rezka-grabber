@@ -61,7 +61,7 @@ async function resolveMediaPlaylist(url: string, depth = 0): Promise<MediaPlayli
 
   if (segments.length === 0) throw new Error('M3U8 не содержит сегментов');
 
-  return {url, text, segments};
+  return { url, text, segments };
 }
 
 export interface HlsDownloadProgress {
@@ -85,7 +85,7 @@ export async function countExistingSegments(outputDir: string): Promise<number> 
     const info = await FileSystem.getInfoAsync(outputDir);
     if (!info.exists) return 0;
     const files = await FileSystem.readDirectoryAsync(outputDir);
-    return files.filter(f => f.endsWith('.ts')).length;
+    return files.filter((f) => f.endsWith('.ts')).length;
   } catch {
     return 0;
   }
@@ -100,23 +100,21 @@ export async function downloadHls(params: {
   m3u8Url: string;
   outputDir: string;
   onProgress: (p: HlsDownloadProgress) => void;
-  cancelRef: {current: boolean};
+  cancelRef: { current: boolean };
 }): Promise<HlsDownloadResult> {
-  const {m3u8Url, outputDir, onProgress, cancelRef} = params;
+  const { m3u8Url, outputDir, onProgress, cancelRef } = params;
 
   const playlist = await resolveMediaPlaylist(m3u8Url);
-  const {segments, text: playlistText} = playlist;
+  const { segments, text: playlistText } = playlist;
 
-  await FileSystem.makeDirectoryAsync(outputDir, {intermediates: true});
+  await FileSystem.makeDirectoryAsync(outputDir, { intermediates: true });
 
-  const segmentLocalNames = segments.map(
-    (_, i) => `seg_${String(i).padStart(5, '0')}.ts`,
-  );
+  const segmentLocalNames = segments.map((_, i) => `seg_${String(i).padStart(5, '0')}.ts`);
 
   // Считаем уже скачанные сегменты — они будут пропущены
   let downloaded = 0;
   const existsFlags: boolean[] = await Promise.all(
-    segmentLocalNames.map(async name => {
+    segmentLocalNames.map(async (name) => {
       const info = await FileSystem.getInfoAsync(`${outputDir}${name}`);
       return info.exists;
     }),
@@ -164,7 +162,7 @@ export async function downloadHls(params: {
 
   // Пишем локальный M3U8 с file:// путями
   let segIdx = 0;
-  const localLines = playlistText.split('\n').map(line => {
+  const localLines = playlistText.split('\n').map((line) => {
     const t = line.trim();
     if (t && !t.startsWith('#')) {
       return `${outputDir}${segmentLocalNames[segIdx++]}`;
@@ -177,5 +175,5 @@ export async function downloadHls(params: {
     encoding: FileSystem.EncodingType.UTF8,
   });
 
-  return {localM3u8Uri, segmentCount: segments.length, dirUri: outputDir};
+  return { localM3u8Uri, segmentCount: segments.length, dirUri: outputDir };
 }

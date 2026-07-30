@@ -1,11 +1,18 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {StatusBar, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions} from 'react-native';
-import Video, {OnProgressData, VideoRef, ViewType} from 'react-native-video';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import Video, { OnProgressData, VideoRef, ViewType } from 'react-native-video';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as NavigationBar from 'expo-navigation-bar';
-import {useNavigation} from '@react-navigation/native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {parseVtt, getCurrentCue} from '../utils/vttParser';
+import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { parseVtt, getCurrentCue } from '../utils/vttParser';
 
 interface OfflinePlayerScreenProps {
   route: {
@@ -17,10 +24,10 @@ interface OfflinePlayerScreenProps {
   };
 }
 
-export const OfflinePlayerScreen: React.FC<OfflinePlayerScreenProps> = ({route}) => {
-  const {title, localM3u8Uri, subtitleUri} = route.params;
+export const OfflinePlayerScreen: React.FC<OfflinePlayerScreenProps> = ({ route }) => {
+  const { title, localM3u8Uri, subtitleUri } = route.params;
   const navigation = useNavigation();
-  const {width, height} = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isLandscape = width > height;
 
@@ -35,15 +42,15 @@ export const OfflinePlayerScreen: React.FC<OfflinePlayerScreenProps> = ({route})
   useEffect(() => {
     if (!subtitleUri) return;
     FileSystem.readAsStringAsync(subtitleUri)
-      .then(text => {
+      .then((text) => {
         vttCuesRef.current = parseVtt(text);
       })
-      .catch(e => console.warn('[OfflinePlayer] Subtitle load failed:', e));
+      .catch((e) => console.warn('[OfflinePlayer] Subtitle load failed:', e));
   }, [subtitleUri]);
 
   // Скрываем/показываем header при fullscreen
   useEffect(() => {
-    navigation.setOptions({headerShown: !isFullscreen});
+    navigation.setOptions({ headerShown: !isFullscreen });
   }, [isFullscreen, navigation]);
 
   const handleProgress = useCallback((data: OnProgressData) => {
@@ -55,7 +62,7 @@ export const OfflinePlayerScreen: React.FC<OfflinePlayerScreenProps> = ({route})
   const handleFullscreenPresent = useCallback(() => {
     interceptingFullscreen.current = true;
     videoRef.current?.dismissFullscreenPlayer();
-    setIsFullscreen(prev => {
+    setIsFullscreen((prev) => {
       const entering = !prev;
       StatusBar.setHidden(entering, 'fade');
       NavigationBar.setVisibilityAsync(entering ? 'hidden' : 'visible');
@@ -83,27 +90,27 @@ export const OfflinePlayerScreen: React.FC<OfflinePlayerScreenProps> = ({route})
   const videoStyle = isFullscreen
     ? styles.videoFullscreen
     : isLandscape
-    ? styles.videoLandscape
-    : styles.video;
+      ? styles.videoLandscape
+      : styles.video;
 
   const wrapperStyle = isFullscreen
     ? styles.wrapperFullscreen
     : isLandscape
-    ? styles.wrapperLandscape
-    : styles.wrapper;
+      ? styles.wrapperLandscape
+      : styles.wrapper;
 
   return (
     <View
       style={[
         styles.root,
         isLandscape && !isFullscreen && styles.rootLandscape,
-        !isFullscreen && {paddingBottom: insets.bottom},
+        !isFullscreen && { paddingBottom: insets.bottom },
       ]}
     >
       <View style={wrapperStyle}>
         <Video
           ref={videoRef}
-          source={{uri: localM3u8Uri}}
+          source={{ uri: localM3u8Uri }}
           style={videoStyle}
           controls
           resizeMode="contain"

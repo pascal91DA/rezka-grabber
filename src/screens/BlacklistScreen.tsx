@@ -1,16 +1,8 @@
-import React, {useCallback, useState} from 'react';
-import {
-  Alert,
-  FlatList,
-  Image,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import {useFocusEffect} from '@react-navigation/native';
-import {BlacklistItem, BlacklistService} from '../services/blacklistService';
+import React, { useCallback, useState } from 'react';
+import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import { BlacklistItem, BlacklistService } from '../services/blacklistService';
 
 export const BlacklistScreen: React.FC = () => {
   const [items, setItems] = useState<BlacklistItem[]>([]);
@@ -24,13 +16,13 @@ export const BlacklistScreen: React.FC = () => {
 
   const handleRemove = (item: BlacklistItem) => {
     Alert.alert('Удалить из чёрного списка?', item.title, [
-      {text: 'Отмена', style: 'cancel'},
+      { text: 'Отмена', style: 'cancel' },
       {
         text: 'Удалить',
         style: 'destructive',
         onPress: async () => {
           await BlacklistService.remove(item.id);
-          setItems(prev => prev.filter(i => i.id !== item.id));
+          setItems((prev) => prev.filter((i) => i.id !== item.id));
         },
       },
     ]);
@@ -41,23 +33,27 @@ export const BlacklistScreen: React.FC = () => {
       {items.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyText}>Чёрный список пуст</Text>
-          <Text style={styles.emptyHint}>Долгое нажатие на постер → «Добавить в чёрный список»</Text>
+          <Text style={styles.emptyHint}>
+            Долгое нажатие на постер → «Добавить в чёрный список»
+          </Text>
         </View>
       ) : (
         <FlatList
           data={items}
-          keyExtractor={item => item.id}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          renderItem={({item}) => (
+          renderItem={({ item }) => (
             <View style={styles.item}>
               {item.poster ? (
-                <Image source={{uri: item.poster}} style={styles.poster} resizeMode="cover" />
+                <Image source={{ uri: item.poster }} style={styles.poster} resizeMode="cover" />
               ) : (
                 <View style={[styles.poster, styles.posterPlaceholder]}>
                   <Text style={styles.posterIcon}>🎬</Text>
                 </View>
               )}
-              <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
+              <Text style={styles.title} numberOfLines={2}>
+                {item.title}
+              </Text>
               <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(item)}>
                 <Text style={styles.removeBtnText}>✕</Text>
               </TouchableOpacity>
@@ -70,11 +66,11 @@ export const BlacklistScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: '#1a1a1a'},
-  empty: {flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32},
-  emptyText: {fontSize: 16, color: '#555', marginBottom: 8},
-  emptyHint: {fontSize: 13, color: '#444', textAlign: 'center', lineHeight: 18},
-  list: {paddingTop: 8},
+  container: { flex: 1, backgroundColor: '#1a1a1a' },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  emptyText: { fontSize: 16, color: '#555', marginBottom: 8 },
+  emptyHint: { fontSize: 13, color: '#444', textAlign: 'center', lineHeight: 18 },
+  list: { paddingTop: 8 },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -90,9 +86,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#2a2a2a',
     marginRight: 12,
   },
-  posterPlaceholder: {justifyContent: 'center', alignItems: 'center'},
-  posterIcon: {fontSize: 20},
-  title: {flex: 1, fontSize: 14, color: '#ddd', lineHeight: 20},
+  posterPlaceholder: { justifyContent: 'center', alignItems: 'center' },
+  posterIcon: { fontSize: 20 },
+  title: { flex: 1, fontSize: 14, color: '#ddd', lineHeight: 20 },
   removeBtn: {
     width: 32,
     height: 32,
@@ -102,5 +98,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 8,
   },
-  removeBtnText: {color: '#ff6b6b', fontSize: 14, fontWeight: '700'},
+  removeBtnText: { color: '#ff6b6b', fontSize: 14, fontWeight: '700' },
 });

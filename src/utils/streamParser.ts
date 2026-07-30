@@ -102,7 +102,12 @@ function decodeUrl(encoded: string): string {
     console.log('[decodeUrl] DECODED:', result.substring(0, 300));
   } catch (e) {
     console.error('[decodeUrl] Failed to decode base64:', e);
-    console.error('[decodeUrl] Input length:', result.length, 'Input (first 100 chars):', result.substring(0, 100));
+    console.error(
+      '[decodeUrl] Input length:',
+      result.length,
+      'Input (first 100 chars):',
+      result.substring(0, 100),
+    );
     return encoded;
   }
 
@@ -149,7 +154,7 @@ export function parseStreamInfo(rawUrl: string): StreamInfo {
   // Выбираем лучший поток
   let selectedStream: StreamQuality | undefined;
   for (const quality of qualityPriority) {
-    const found = streams.find(s => s.quality === quality);
+    const found = streams.find((s) => s.quality === quality);
     if (found) {
       selectedStream = found;
       break;

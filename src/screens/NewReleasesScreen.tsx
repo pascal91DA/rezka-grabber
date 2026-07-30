@@ -1,4 +1,4 @@
-import React, {useState, useCallback} from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,22 +9,29 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import {useBottomTabBarHeight} from '@react-navigation/bottom-tabs';
-import {useFocusEffect} from '@react-navigation/native';
-import {MovieGridCard} from '../components/MovieGridCard';
-import {RezkaService} from '../services/rezkaService';
-import {Movie} from '../types/Movie';
-import {ContentFilter, ContentType, CONTENT_FILTERS, CONTENT_TYPES} from '../constants/categories';
-import {BlacklistService} from '../services/blacklistService';
-import {WatchedService} from '../services/watchedService';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useFocusEffect } from '@react-navigation/native';
+import { MovieGridCard } from '../components/MovieGridCard';
+import { RezkaService } from '../services/rezkaService';
+import { Movie } from '../types/Movie';
+import {
+  ContentFilter,
+  ContentType,
+  CONTENT_FILTERS,
+  CONTENT_TYPES,
+} from '../constants/categories';
+import { BlacklistService } from '../services/blacklistService';
+import { WatchedService } from '../services/watchedService';
+import { useTheme } from '../context/ThemeContext';
 
 const H_PADDING = 8;
 const GAP = 6;
 
 export const NewReleasesScreen: React.FC = () => {
   const tabBarHeight = useBottomTabBarHeight();
-  const {width, height} = useWindowDimensions();
+  const theme = useTheme();
+  const { width, height } = useWindowDimensions();
   const numColumns = width > height ? 8 : 4;
   const [selectedFilter, setSelectedFilter] = useState<ContentFilter>(CONTENT_FILTERS[0]);
   const [selectedType, setSelectedType] = useState<ContentType>(CONTENT_TYPES[0]);
@@ -36,29 +43,38 @@ export const NewReleasesScreen: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [blacklistIds, setBlacklistIds] = useState<Set<string>>(new Set());
 
-  const loadMovies = useCallback(async (basePath: string, filter: string, pageNum: number, append: boolean, ids: Set<string>) => {
-    if (append) {
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
-      setError(null);
-    }
-    try {
-      const results = await RezkaService.getNewReleases(basePath, filter, pageNum);
-      const filtered = results.filter(m => !ids.has(m.id));
+  const loadMovies = useCallback(
+    async (
+      basePath: string,
+      filter: string,
+      pageNum: number,
+      append: boolean,
+      ids: Set<string>,
+    ) => {
       if (append) {
-        setMovies(prev => [...prev, ...filtered]);
+        setLoadingMore(true);
       } else {
-        setMovies(filtered);
+        setLoading(true);
+        setError(null);
       }
-      setHasMore(results.length > 0);
-    } catch {
-      setError('Не удалось загрузить список. Проверьте подключение.');
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, []);
+      try {
+        const results = await RezkaService.getNewReleases(basePath, filter, pageNum);
+        const filtered = results.filter((m) => !ids.has(m.id));
+        if (append) {
+          setMovies((prev) => [...prev, ...filtered]);
+        } else {
+          setMovies(filtered);
+        }
+        setHasMore(results.length > 0);
+      } catch {
+        setError('Не удалось загрузить список. Проверьте подключение.');
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -95,8 +111,8 @@ export const NewReleasesScreen: React.FC = () => {
   };
 
   const handleHidden = (id: string) => {
-    setBlacklistIds(prev => new Set([...prev, id]));
-    setMovies(prev => prev.filter(m => m.id !== id));
+    setBlacklistIds((prev) => new Set([...prev, id]));
+    setMovies((prev) => prev.filter((m) => m.id !== id));
   };
 
   return (
@@ -113,14 +129,28 @@ export const NewReleasesScreen: React.FC = () => {
           data={CONTENT_FILTERS}
           horizontal
           showsHorizontalScrollIndicator={false}
-          keyExtractor={item => item.filter}
+          keyExtractor={(item) => item.filter}
           contentContainerStyle={styles.categoriesList}
-          renderItem={({item}) => (
+          renderItem={({ item }) => (
             <TouchableOpacity
-              style={[styles.categoryButton, item.filter === selectedFilter.filter && styles.categoryButtonActive]}
+              style={[
+                styles.categoryButton,
+                item.filter === selectedFilter.filter && {
+                  backgroundColor: theme.accentStrong,
+                  borderColor: theme.accentStrong,
+                },
+              ]}
               onPress={() => handleFilterSelect(item)}
             >
-              <Text style={[styles.categoryButtonText, item.filter === selectedFilter.filter && styles.categoryButtonTextActive]}>
+              <Text
+                style={[
+                  styles.categoryButtonText,
+                  item.filter === selectedFilter.filter && [
+                    styles.categoryButtonTextActive,
+                    { color: theme.onAccent },
+                  ],
+                ]}
+              >
                 {item.label}
               </Text>
             </TouchableOpacity>
@@ -134,14 +164,28 @@ export const NewReleasesScreen: React.FC = () => {
           data={CONTENT_TYPES}
           horizontal
           showsHorizontalScrollIndicator={false}
-          keyExtractor={item => item.basePath}
+          keyExtractor={(item) => item.basePath}
           contentContainerStyle={styles.categoriesList}
-          renderItem={({item}) => (
+          renderItem={({ item }) => (
             <TouchableOpacity
-              style={[styles.typeButton, item.basePath === selectedType.basePath && styles.typeButtonActive]}
+              style={[
+                styles.typeButton,
+                item.basePath === selectedType.basePath && {
+                  backgroundColor: theme.accentSurface,
+                  borderColor: theme.accentBorder,
+                },
+              ]}
               onPress={() => handleTypeSelect(item)}
             >
-              <Text style={[styles.typeButtonText, item.basePath === selectedType.basePath && styles.typeButtonTextActive]}>
+              <Text
+                style={[
+                  styles.typeButtonText,
+                  item.basePath === selectedType.basePath && [
+                    styles.typeButtonTextActive,
+                    { color: theme.accent },
+                  ],
+                ]}
+              >
                 {item.label}
               </Text>
             </TouchableOpacity>
@@ -151,14 +195,20 @@ export const NewReleasesScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#5eb3ff" />
+          <ActivityIndicator size="large" color={theme.accent} />
           <Text style={styles.loadingText}>Загрузка...</Text>
         </View>
       ) : error ? (
         <View style={styles.centerContainer}>
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => { setPage(1); loadMovies(selectedType.basePath, selectedFilter.filter, 1, false, blacklistIds); }}>
-            <Text style={styles.retryButtonText}>Повторить</Text>
+          <TouchableOpacity
+            style={[styles.retryButton, { backgroundColor: theme.accentStrong }]}
+            onPress={() => {
+              setPage(1);
+              loadMovies(selectedType.basePath, selectedFilter.filter, 1, false, blacklistIds);
+            }}
+          >
+            <Text style={[styles.retryButtonText, { color: theme.onAccent }]}>Повторить</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -166,20 +216,22 @@ export const NewReleasesScreen: React.FC = () => {
           data={movies}
           key={`grid-${numColumns}`}
           numColumns={numColumns}
-          keyExtractor={item => item.id}
-          renderItem={({item}) => <MovieGridCard movie={item} numColumns={numColumns} onBlacklisted={handleHidden} />}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <MovieGridCard movie={item} numColumns={numColumns} onBlacklisted={handleHidden} />
+          )}
           columnWrapperStyle={styles.row}
           contentContainerStyle={[
             styles.grid,
             movies.length === 0 && styles.emptyGrid,
-            {paddingBottom: tabBarHeight},
+            { paddingBottom: tabBarHeight },
           ]}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.3}
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color="#5eb3ff" />
+                <ActivityIndicator size="small" color={theme.accent} />
               </View>
             ) : null
           }
@@ -236,17 +288,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#444',
   },
-  categoryButtonActive: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
   categoryButtonText: {
     fontSize: 14,
     color: '#aaa',
     fontWeight: '500',
   },
   categoryButtonTextActive: {
-    color: '#fff',
     fontWeight: '600',
   },
   typeButton: {
@@ -257,17 +304,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3a3a3a',
   },
-  typeButtonActive: {
-    backgroundColor: '#2d4a6e',
-    borderColor: '#4a7ab5',
-  },
   typeButtonText: {
     fontSize: 13,
     color: '#888',
     fontWeight: '500',
   },
   typeButtonTextActive: {
-    color: '#7ab4ff',
     fontWeight: '600',
   },
   grid: {
@@ -303,13 +345,11 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   retryButton: {
-    backgroundColor: '#007AFF',
     paddingVertical: 10,
     paddingHorizontal: 28,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#fff',
     fontSize: 15,
     fontWeight: '600',
   },

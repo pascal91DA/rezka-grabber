@@ -1,13 +1,15 @@
-import React, {useState} from 'react';
-import {Modal, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import {useTimer, formatTime, TIMER_PRESETS} from '../context/TimerContext';
+import React, { useState } from 'react';
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useTimer, formatTime, TIMER_PRESETS } from '../context/TimerContext';
+import { useTheme } from '../context/ThemeContext';
 
 /**
  * Компактная кнопка-триггер с всплывающим меню для управления таймером сна.
  * Позволяет поставить/отменить таймер не уходя с текущего экрана.
  */
 export const SleepTimerMenu: React.FC = () => {
-  const {timeLeft, setTimer, cancelTimer} = useTimer();
+  const { timeLeft, setTimer, cancelTimer } = useTimer();
+  const theme = useTheme();
   const [open, setOpen] = useState(false);
 
   const active = timeLeft !== null;
@@ -15,10 +17,13 @@ export const SleepTimerMenu: React.FC = () => {
   return (
     <>
       <TouchableOpacity
-        style={[styles.trigger, active && styles.triggerActive]}
+        style={[
+          styles.trigger,
+          active && { backgroundColor: theme.accentSoft, borderColor: theme.accent },
+        ]}
         onPress={() => setOpen(true)}
       >
-        <Text style={[styles.triggerText, active && styles.triggerTextActive]}>
+        <Text style={[styles.triggerText, active && { color: theme.accent }]}>
           🌙 {active ? formatTime(timeLeft!) : 'Таймер сна'}
         </Text>
       </TouchableOpacity>
@@ -30,18 +35,16 @@ export const SleepTimerMenu: React.FC = () => {
         statusBarTranslucent
         onRequestClose={() => setOpen(false)}
       >
-        <TouchableOpacity
-          style={styles.overlay}
-          activeOpacity={1}
-          onPress={() => setOpen(false)}
-        >
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setOpen(false)}>
           <TouchableOpacity style={styles.menu} activeOpacity={1}>
             <Text style={styles.menuTitle}>Таймер сна</Text>
 
             {active ? (
               <>
                 <View style={styles.activeRow}>
-                  <Text style={styles.activeCountdown}>{formatTime(timeLeft!)}</Text>
+                  <Text style={[styles.activeCountdown, { color: theme.accent }]}>
+                    {formatTime(timeLeft!)}
+                  </Text>
                   <Text style={styles.activeLabel}>до закрытия приложения</Text>
                 </View>
                 <TouchableOpacity
@@ -60,7 +63,7 @@ export const SleepTimerMenu: React.FC = () => {
                   Приложение автоматически закроется по истечении времени.
                 </Text>
                 <View style={styles.presets}>
-                  {TIMER_PRESETS.map(p => (
+                  {TIMER_PRESETS.map((p) => (
                     <TouchableOpacity
                       key={p.seconds}
                       style={styles.presetBtn}
@@ -94,12 +97,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#444',
   },
-  triggerActive: {
-    backgroundColor: '#1f3a4d',
-    borderColor: '#5eb3ff',
-  },
-  triggerText: {color: '#fff', fontSize: 14, fontWeight: '600'},
-  triggerTextActive: {color: '#5eb3ff'},
+  triggerText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
@@ -114,9 +112,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
   },
-  menuTitle: {fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 12},
-  menuHint: {fontSize: 13, color: '#888', marginBottom: 16, lineHeight: 18},
-  presets: {flexDirection: 'row', flexWrap: 'wrap', gap: 10},
+  menuTitle: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 12 },
+  menuHint: { fontSize: 13, color: '#888', marginBottom: 16, lineHeight: 18 },
+  presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   presetBtn: {
     backgroundColor: '#1a1a1a',
     borderRadius: 10,
@@ -126,10 +124,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#444',
   },
-  presetBtnText: {color: '#fff', fontSize: 14, fontWeight: '600'},
-  activeRow: {alignItems: 'center', marginBottom: 20},
-  activeCountdown: {fontSize: 40, fontWeight: '700', color: '#5eb3ff', letterSpacing: 1},
-  activeLabel: {fontSize: 13, color: '#666', marginTop: 4},
+  presetBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  activeRow: { alignItems: 'center', marginBottom: 20 },
+  activeCountdown: { fontSize: 40, fontWeight: '700', letterSpacing: 1 },
+  activeLabel: { fontSize: 13, color: '#666', marginTop: 4 },
   cancelBtn: {
     backgroundColor: '#3a1a1a',
     borderRadius: 10,
@@ -138,5 +136,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#5a2a2a',
   },
-  cancelBtnText: {color: '#ff6b6b', fontSize: 14, fontWeight: '600'},
+  cancelBtnText: { color: '#ff6b6b', fontSize: 14, fontWeight: '600' },
 });

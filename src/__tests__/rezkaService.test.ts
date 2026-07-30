@@ -65,9 +65,7 @@ describe('extractStreamsFromHtml', () => {
   });
 
   it('корректно обрабатывает экранированные слэши \\/', () => {
-    const html = makeHtmlWithStreams(
-      '[1080p]https:\\/\\/cdn.example.com\\/hd\\/video.m3u8'
-    );
+    const html = makeHtmlWithStreams('[1080p]https:\\/\\/cdn.example.com\\/hd\\/video.m3u8');
     const result = extractStreamsFromHtml(html);
     expect(result).toBe('[1080p]https://cdn.example.com/hd/video.m3u8');
   });
@@ -144,7 +142,7 @@ describe('Интеграция: извлечение и парсинг пото�
     const { parseStreamInfo } = require('../utils/streamParser');
 
     const html = makeHtmlWithStreams(
-      '[360p]https:\\/\\/cdn.example.com\\/360.mp4,[1080p]https:\\/\\/cdn.example.com\\/1080.mp4'
+      '[360p]https:\\/\\/cdn.example.com\\/360.mp4,[1080p]https:\\/\\/cdn.example.com\\/1080.mp4',
     );
 
     const raw = extractStreamsFromHtml(html);

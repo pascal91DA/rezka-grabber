@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {Movie} from '../types/Movie';
+import { Movie } from '../types/Movie';
 
 const KEY = 'blacklist_v1';
 
@@ -27,7 +27,7 @@ export class BlacklistService {
 
   static async add(movie: Movie): Promise<void> {
     const list = await this.getAll();
-    if (list.some(i => i.id === movie.id)) return;
+    if (list.some((i) => i.id === movie.id)) return;
     list.push({
       id: movie.id,
       title: movie.title,
@@ -41,18 +41,18 @@ export class BlacklistService {
 
   static async remove(id: string): Promise<void> {
     const list = await this.getAll();
-    this.cache = list.filter(i => i.id !== id);
+    this.cache = list.filter((i) => i.id !== id);
     await AsyncStorage.setItem(KEY, JSON.stringify(this.cache));
   }
 
   static async isBlacklisted(id: string): Promise<boolean> {
     const list = await this.getAll();
-    return list.some(i => i.id === id);
+    return list.some((i) => i.id === id);
   }
 
   static async getIds(): Promise<Set<string>> {
     const list = await this.getAll();
-    return new Set(list.map(i => i.id));
+    return new Set(list.map((i) => i.id));
   }
 
   static invalidateCache(): void {
