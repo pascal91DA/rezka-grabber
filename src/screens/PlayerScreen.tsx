@@ -35,6 +35,11 @@ import { WebView } from 'react-native-webview';
 import { SleepTimerMenu } from '../components/SleepTimerMenu';
 import { useTheme } from '../context/ThemeContext';
 
+/** Первая бесплатная озвучка: премиум без подписки отдаёт только минутный промо-ролик. */
+function pickDefaultTranslation(translations: Translation[]): Translation {
+  return translations.find((t) => !t.premium) ?? translations[0];
+}
+
 function isSubtitleTranslation(translationTitle: string | undefined): boolean {
   return !!translationTitle?.toLowerCase().includes('субтитр');
 }
@@ -74,6 +79,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({ route }) => {
   const [loading, setLoading] = useState(true);
   const [movieData, setMovieData] = useState<MovieData | null>(null);
   const [selectedTranslation, setSelectedTranslation] = useState<Translation | null>(null);
+  const [showTranslatorStats, setShowTranslatorStats] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState<Season | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -551,9 +557,9 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({ route }) => {
       if (resume) {
         if (resume.translationId && data.translations.length > 0) {
           const translation = data.translations.find((t) => t.id === resume.translationId);
-          setSelectedTranslation(translation || data.translations[0]);
+          setSelectedTranslation(translation || pickDefaultTranslation(data.translations));
         } else if (data.translations.length > 0) {
-          setSelectedTranslation(data.translations[0]);
+          setSelectedTranslation(pickDefaultTranslation(data.translations));
         }
 
         if (resume.seasonId && data.seasons && data.seasons.length > 0) {
@@ -575,7 +581,7 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({ route }) => {
         }
       } else {
         if (data.translations.length > 0) {
-          setSelectedTranslation(data.translations[0]);
+          setSelectedTranslation(pickDefaultTranslation(data.translations));
         }
 
         if (data.seasons && data.seasons.length > 0) {
@@ -1024,10 +1030,74 @@ export const PlayerScreen: React.FC<PlayerScreenProps> = ({ route }) => {
                       ]}
                     >
                       {translation.title}
+                      {translation.premium && <Text style={styles.premiumBadge}> ★ Premium</Text>}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+
+              {/* «Не можешь выбрать озвучку?» — популярность озвучек среди зрителей */}
+              {movieData.translatorStats && movieData.translatorStats.length > 0 && (
+                <>
+                  <TouchableOpacity onPress={() => setShowTranslatorStats((v) => !v)}>
+                    <Text style={[styles.statsToggle, { color: theme.accent }]}>
+                      {showTranslatorStats ? '▾' : '▸'} Не можешь выбрать озвучку?
+                    </Text>
+                  </TouchableOpacity>
+                  {showTranslatorStats && (
+                    <View style={styles.statsBox}>
+                      <Text style={styles.statsTitle}>Популярность озвучек для этого тайтла</Text>
+                      {movieData.translatorStats.map((stat) => {
+                        const translation = movieData.translations.find(
+                          (t) => t.id === stat.translationId,
+                        );
+                        const isSelected = !!translation && selectedTranslation?.id === translation.id;
+                        return (
+                          <TouchableOpacity
+                            key={stat.title}
+                            style={styles.statsRow}
+                            disabled={!translation}
+                            onPress={() => translation && setSelectedTranslation(translation)}
+                          >
+                            <View style={styles.statsRowHeader}>
+                              <Text
+                                style={[
+                                  styles.statsRowTitle,
+                                  isSelected && { color: theme.accent, fontWeight: 'bold' },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {stat.title}
+                                {translation?.premium && (
+                                  <Text style={styles.premiumBadge}> ★ Premium</Text>
+                                )}
+                              </Text>
+                              <Text style={styles.statsRowPercent}>
+                                {stat.percent.toFixed(stat.percent < 10 ? 2 : 1)}%
+                              </Text>
+                            </View>
+                            <View style={styles.statsBarTrack}>
+                              <View
+                                style={[
+                                  styles.statsBarFill,
+                                  {
+                                    width: `${Math.max(stat.percent, 1)}%`,
+                                    backgroundColor: theme.accent,
+                                  },
+                                ]}
+                              />
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                      <Text style={styles.statsFootnote}>
+                        На основе текущих предпочтений всех зрителей rezka. Нажмите на озвучку, чтобы
+                        выбрать её.
+                      </Text>
+                    </View>
+                  )}
+                </>
+              )}
             </View>
           )}
 
@@ -1435,6 +1505,62 @@ const styles = StyleSheet.create({
   selectorButtonText: {
     fontSize: 14,
     color: '#ffffff',
+  },
+  premiumBadge: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#f5b301',
+  },
+  statsToggle: {
+    fontSize: 13,
+    marginTop: 10,
+  },
+  statsBox: {
+    marginTop: 8,
+    padding: 12,
+    backgroundColor: '#1e1e1e',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  statsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
+    marginBottom: 10,
+  },
+  statsRow: {
+    marginBottom: 10,
+  },
+  statsRowHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  statsRowTitle: {
+    flex: 1,
+    fontSize: 13,
+    color: '#dddddd',
+    marginRight: 8,
+  },
+  statsRowPercent: {
+    fontSize: 13,
+    color: '#aaaaaa',
+  },
+  statsBarTrack: {
+    height: 6,
+    backgroundColor: '#333',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  statsBarFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  statsFootnote: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
   },
   infoContainer: {
     marginTop: 20,

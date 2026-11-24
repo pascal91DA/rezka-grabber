@@ -130,15 +130,20 @@ export function parseStreamInfo(rawUrl: string): StreamInfo {
   // Формат: [качество]url или [качество]url
   const parts = decoded.split(',');
 
+  const premiumStreams: StreamQuality[] = [];
   for (const part of parts) {
     const match = part.match(/\[([^\]]+)\](https?:\/\/[^\s,]+)/);
     if (match) {
-      streams.push({
-        quality: match[1],
-        url: match[2],
-      });
+      // Премиум-качества приходят HTML-меткой:
+      // [<span class="pjs-prem-quality">1080p Ultra<img ...></span>]url
+      const rawLabel = match[1];
+      const stream = { quality: rawLabel.replace(/<[^>]*>/g, '').trim(), url: match[2] };
+      if (/pjs-prem-quality/.test(rawLabel)) premiumStreams.push(stream);
+      else streams.push(stream);
     }
   }
+  // Без подписки премиум-качества отдают промо-ролик — используем их только если других нет.
+  if (streams.length === 0) streams.push(...premiumStreams);
 
   // Если не удалось распарсить - возвращаем как один поток
   if (streams.length === 0 && decoded) {

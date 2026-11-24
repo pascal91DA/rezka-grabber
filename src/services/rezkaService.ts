@@ -79,7 +79,57 @@ export interface Translation {
   id: string;
   title: string;
   slug?: string; // e.g. "56-dublyazh", нужен для построения URL эпизодов
+  /** Озвучка доступна только по подписке Premium (класс b-prem_translator). */
+  premium?: boolean;
 }
+
+/** Флаги фильма из data-атрибутов переводчика, нужны для AJAX get_movie. */
+interface MovieTranslatorFlags {
+  camrip: string;
+  ads: string;
+  director: string;
+}
+
+/**
+ * Разбирает теги переводчиков из блока translators-list.
+ * rezka выводит список дважды: скрытый (`b-translator__items`, href со случайным
+ * префиксом) и видимый (`b-translator__item`, href вида "{id}-{slug}.html").
+ * Сливаем по id, предпочитая slug вида "{id}-...".
+ */
+export function parseTranslatorsList(
+  listHtml: string,
+): (Translation & { flags: MovieTranslatorFlags })[] {
+  const result = new Map<string, Translation & { flags: MovieTranslatorFlags }>();
+  const tagRegex = /<(?:a|li)\b[^>]*data-translator_id="(\d+)"[^>]*>/gi;
+  let match;
+  while ((match = tagRegex.exec(listHtml)) !== null) {
+    const id = match[1];
+    const tag = match[0];
+    const attr = (name: string) => tag.match(new RegExp(`${name}="([^"]*)"`))?.[1];
+
+    const title = (attr('title') ?? `Перевод ${id}`).trim();
+    const premium = /\bb-prem_translator\b/.test(attr('class') ?? '');
+    const hrefSlug = attr('href')?.match(/\/([^/]+)\.html$/)?.[1];
+    const slug = hrefSlug && hrefSlug.startsWith(`${id}-`) ? hrefSlug : undefined;
+    const flags: MovieTranslatorFlags = {
+      camrip: attr('data-camrip') ?? '0',
+      ads: attr('data-ads') ?? '0',
+      director: attr('data-director') ?? '0',
+    };
+
+    const existing = result.get(id);
+    if (existing) {
+      if (!existing.slug && slug) existing.slug = slug;
+      existing.premium = existing.premium || premium;
+    } else {
+      result.set(id, { id, title, slug, premium, flags });
+    }
+  }
+  return [...result.values()];
+}
+
+// movieId:translatorId -> флаги для get_movie (заполняется в getMovieData).
+const movieFlagsCache = new Map<string, MovieTranslatorFlags>();
 
 export interface Season {
   id: string;
@@ -118,6 +168,53 @@ export interface MovieData {
   seasons?: Season[];
   episodes?: Episode[];
   franchise?: Franchise;
+  /** Популярность озвучек ("Не можешь выбрать озвучку?"), по убыванию. */
+  translatorStats?: TranslatorStat[];
+}
+
+export interface TranslatorStat {
+  title: string;
+  /** Доля зрителей в процентах, например 39.73. */
+  percent: number;
+  /** id перевода из списка translations, если удалось сопоставить по названию. */
+  translationId?: string;
+}
+
+/**
+ * Парсит подсказку «Не можешь выбрать озвучку?» — популярность озвучек.
+ * HTML лежит экранированным в title у span.b-rgstats__help:
+ *   <li class="b-rgstats__list_item"><div class="inner"><div class="title">Дубляж</div>
+ *   <div class="bar" ...></div><div class="count">33,54%</div></div></li>
+ */
+export function parseTranslatorStats(
+  html: string,
+  translations: Translation[] = [],
+): TranslatorStat[] | undefined {
+  const attr = html.match(/<span[^>]*class="[^"]*\bb-rgstats__help\b[^"]*"[^>]*?\stitle="([^"]*)"/i);
+  if (!attr) return undefined;
+  // Атрибут экранирован (&lt;div class=&quot;title&quot;&gt;) — раскрываем сущности.
+  const inner = attr[1]
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+
+  const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim();
+  const byTitle = new Map(translations.map((t) => [norm(t.title), t.id]));
+
+  const stats: TranslatorStat[] = [];
+  const itemRegex =
+    /<div class="title">([\s\S]*?)<\/div>[\s\S]*?<div class="count">\s*([\d.,]+)\s*%/gi;
+  let m;
+  while ((m = itemRegex.exec(inner)) !== null) {
+    const title = stripTags(m[1]);
+    const percent = parseFloat(m[2].replace(',', '.'));
+    if (!title || Number.isNaN(percent)) continue;
+    stats.push({ title, percent, translationId: byTitle.get(norm(title)) });
+  }
+  if (stats.length === 0) return undefined;
+  return stats.sort((a, b) => b.percent - a.percent);
 }
 
 /**
@@ -316,32 +413,17 @@ export class RezkaService {
     const translatorBlockMatch = html.match(/<ul id="translators-list"[^>]*>([\s\S]*?)<\/ul>/i);
 
     if (translatorBlockMatch) {
-      const translatorsList = translatorBlockMatch[1];
-      const translationRegex = /<(?:a|li)[^>]*data-translator_id="(\d+)"[^>]*>/gi;
-      let match;
-      // rezka дублирует блок translators-list в HTML — отсеиваем повторяющиеся id.
-      const seenTranslators = new Set<string>();
-
-      while ((match = translationRegex.exec(translatorsList)) !== null) {
-        const translatorId = match[1];
-        if (seenTranslators.has(translatorId)) continue;
-        seenTranslators.add(translatorId);
-        const fullTag = match[0];
-        const titleMatch = fullTag.match(/title="([^"]+)"/);
-        const title = titleMatch ? titleMatch[1] : `Перевод ${translatorId}`;
-
-        translations.push({
-          id: translatorId,
-          title,
-          slug: slugMap[translatorId],
-        });
+      for (const { flags, ...t } of parseTranslatorsList(translatorBlockMatch[1])) {
+        // Для сериалов slug берём из ссылок на сезоны, для фильмов — из href самого перевода.
+        translations.push({ ...t, slug: slugMap[t.id] ?? t.slug });
+        movieFlagsCache.set(`${movieId}:${t.id}`, flags);
       }
     }
 
     // Если translators-list отсутствует (один перевод без UI выбора) —
-    // восстанавливаем translator_id из initCDNSeriesEvents/initCDNMovieEvents
+    // восстанавливаем translator_id из initCDNSeriesEvents/initCDNMoviesEvents
     if (translations.length === 0) {
-      const initMatch = html.match(/initCDN(?:Series|Movie)Events\s*\(\s*\d+\s*,\s*(\d+)/);
+      const initMatch = html.match(/initCDN(?:Series|Movies?)Events\s*\(\s*\d+\s*,\s*(\d+)/);
       const translatorId = initMatch?.[1] ?? Object.keys(slugMap)[0];
       if (translatorId) {
         const slug = slugMap[translatorId];
@@ -410,6 +492,7 @@ export class RezkaService {
       seasons: seasons.length > 0 ? seasons : undefined,
       episodes: episodes.length > 0 ? episodes : undefined,
       franchise: parseFranchise(html),
+      translatorStats: parseTranslatorStats(html, translations),
     };
   }
 
@@ -435,6 +518,11 @@ export class RezkaService {
       params.append('episode', episode!);
       params.append('action', 'get_stream');
     } else {
+      // Без is_camrip/is_ads/is_director rezka может не отдать поток выбранного перевода.
+      const flags = movieFlagsCache.get(`${movieId}:${translationId}`);
+      params.append('is_camrip', flags?.camrip ?? '0');
+      params.append('is_ads', flags?.ads ?? '0');
+      params.append('is_director', flags?.director ?? '0');
       params.append('action', 'get_movie');
     }
 
