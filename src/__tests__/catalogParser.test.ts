@@ -1,6 +1,10 @@
 import { parseCatalogPage } from '../services/rezkaService';
 import { CATEGORIES } from '../constants/categories';
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
 // ─── Вспомогательные функции ──────────────────────────────────────────────
 
 interface ItemOptions {

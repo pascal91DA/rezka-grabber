@@ -1,5 +1,9 @@
 import { extractStreamsFromHtml, parseTranslatorSlugs } from '../services/rezkaService';
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
 // ─── Фикстуры HTML ────────────────────────────────────────────────────────
 
 /** HTML с одним блоком streams в скрипте initCDNSeriesEvents */

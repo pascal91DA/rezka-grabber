@@ -1,5 +1,9 @@
 import { parseFranchise } from '../services/rezkaService';
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
 // Фрагмент реальной страницы rezka.ag (Звёздные войны), сокращён до 4 частей
 const HTML_WITH_FRANCHISE = `
 <div class="b-post__infotable">…</div>

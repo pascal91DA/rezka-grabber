@@ -1,14 +1,22 @@
-import axios from 'axios';
+import axios, { isCancel, type InternalAxiosRequestConfig } from 'axios';
 import { Platform } from 'react-native';
 import { Movie } from '../types/Movie';
 import { parseStreamInfo, parseSubtitles, applyUrlFixes } from '../utils/streamParser';
 import type { StreamInfo, SubtitleTrack } from '../types/Stream';
 import { isAnubisChallenge, solveAnubisChallenge } from './anubisService';
+import {
+  findMirrorOrigin,
+  getActiveMirror,
+  mirrorHost,
+  switchToNextMirror,
+  toMirror,
+} from './mirrorService';
 
-const REZKA_URL = 'https://rezka.ag';
 const PROXY_URL = 'http://localhost:3001/proxy';
 
-const BASE_URL = Platform.OS === 'web' ? PROXY_URL : REZKA_URL;
+// Коды, при которых зеркало считаем недоступным (блокировка / падение CDN).
+// 503 сюда не входит: rezka отдаёт его на конкретный контент, см. getVideoUrlWithRetry.
+const MIRROR_DOWN_STATUSES = [451, 502, 504, 520, 521, 522, 523, 524, 525, 526];
 
 const COMMON_HEADERS = {
   'User-Agent':
@@ -23,24 +31,68 @@ const axiosInstance = axios.create({
   timeout: 30000,
 });
 
-// На native rezka.ag защищён Anubis (proof-of-work anti-bot). Если ответ оказался
-// challenge-страницей вместо контента — решаем PoW и повторяем запрос один раз.
-// На web этим занимается прокси (proxy-server.js), поэтому пропускаем.
-axiosInstance.interceptors.response.use(async (response) => {
-  if (Platform.OS === 'web') return response;
-  const config = response.config as typeof response.config & { __anubisRetried?: boolean };
-  if (isAnubisChallenge(response.data) && !config.__anubisRetried) {
-    await solveAnubisChallenge(response.data);
-    config.__anubisRetried = true;
-    return axiosInstance.request(config);
-  }
-  return response;
+type RezkaRequestConfig = InternalAxiosRequestConfig & {
+  __anubisRetried?: boolean;
+  /** Зеркало, к которому реально ушёл запрос. */
+  __mirror?: string;
+  /** Зеркала, уже опробованные для этого запроса. */
+  __triedMirrors?: string[];
+  /** Исходный URL до переноса на зеркало/прокси — от него строятся повторы. */
+  __sourceUrl?: string;
+};
+
+// URL строятся от любого известного зеркала (в т.ч. сохранённые в истории) —
+// здесь переносим их на активное зеркало. На web запрос идёт через прокси,
+// а нужный хост передаём заголовком X-Rezka-Host.
+axiosInstance.interceptors.request.use((cfg) => {
+  const config = cfg as RezkaRequestConfig;
+  config.__sourceUrl ??= config.url;
+  if (!config.__sourceUrl || !findMirrorOrigin(config.__sourceUrl)) return config;
+  const mirror = getActiveMirror();
+  config.__mirror = mirror;
+  config.url = toMirror(config.__sourceUrl, Platform.OS === 'web' ? PROXY_URL : mirror);
+  config.headers.set('Referer', `${mirror}/`);
+  if (Platform.OS === 'web') config.headers.set('X-Rezka-Host', mirrorHost(mirror));
+  return config;
 });
 
-function toProxyUrl(url: string): string {
-  if (Platform.OS !== 'web') return url;
-  return url.replace(REZKA_URL, PROXY_URL);
-}
+// На native rezka защищён Anubis (proof-of-work anti-bot). Если ответ оказался
+// challenge-страницей вместо контента — решаем PoW и повторяем запрос один раз.
+// На web этим занимается прокси (proxy-server.js), поэтому пропускаем.
+axiosInstance.interceptors.response.use(
+  async (response) => {
+    if (Platform.OS === 'web') return response;
+    const config = response.config as RezkaRequestConfig;
+    if (isAnubisChallenge(response.data) && !config.__anubisRetried && config.__mirror) {
+      await solveAnubisChallenge(response.data, config.__mirror);
+      config.__anubisRetried = true;
+      return axiosInstance.request(config);
+    }
+    return response;
+  },
+  // Зеркало недоступно (сеть/блокировка) — в режиме «Авто» пробуем следующее.
+  async (error) => {
+    const config = error?.config as RezkaRequestConfig | undefined;
+    const status: number | undefined = error?.response?.status;
+    const mirrorDown = !error?.response || MIRROR_DOWN_STATUSES.includes(status!);
+    if (!config?.__mirror || !mirrorDown || isCancel(error)) throw error;
+
+    const tried = [...(config.__triedMirrors ?? []), config.__mirror];
+    // Другой запрос мог уже переключить зеркало — тогда просто повторяем на нём.
+    const next =
+      getActiveMirror() !== config.__mirror
+        ? getActiveMirror()
+        : switchToNextMirror(config.__mirror);
+    if (!next || tried.includes(next)) throw error;
+
+    console.warn(
+      `[mirror] ${config.__mirror} недоступен (${status ?? error?.code}), пробуем ${next}`,
+    );
+    config.__triedMirrors = tried;
+    config.__anubisRetried = false;
+    return axiosInstance.request(config);
+  },
+);
 
 /**
  * Извлекает значение "streams" из HTML страницы rezka.ag.
@@ -169,7 +221,7 @@ export function parseCatalogPage(html: string): Movie[] {
     const yearMatch = miscRaw?.match(/(\d{4})/);
     const year = yearMatch?.[1];
 
-    const fullUrl = dataUrl.startsWith('http') ? dataUrl : `${REZKA_URL}${dataUrl}`;
+    const fullUrl = dataUrl.startsWith('http') ? dataUrl : `${getActiveMirror()}${dataUrl}`;
     const id = dataUrl.split('/').filter(Boolean).pop() || `movie-${movies.length}`;
 
     if (dataUrl && title) {
@@ -260,7 +312,7 @@ export function parseFranchise(html: string): Franchise | undefined {
     const url = rawUrl
       ? rawUrl.startsWith('http')
         ? rawUrl
-        : `${REZKA_URL}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`
+        : `${getActiveMirror()}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`
       : undefined;
 
     const num = itemHtml.match(/class="[^"]*\btd num\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1];
@@ -292,7 +344,7 @@ export function parseFranchise(html: string): Franchise | undefined {
     url: franchiseHref
       ? franchiseHref.startsWith('http')
         ? franchiseHref
-        : `${REZKA_URL}${franchiseHref}`
+        : `${getActiveMirror()}${franchiseHref}`
       : undefined,
     parts,
   };
@@ -300,9 +352,7 @@ export function parseFranchise(html: string): Franchise | undefined {
 
 export class RezkaService {
   static async getMovieData(url: string): Promise<MovieData> {
-    const response = await axiosInstance.get(toProxyUrl(url), {
-      headers: { Referer: REZKA_URL },
-    });
+    const response = await axiosInstance.get(url);
 
     const html = response.data;
 
@@ -438,8 +488,7 @@ export class RezkaService {
       params.append('action', 'get_movie');
     }
 
-    const baseUrl = Platform.OS === 'web' ? PROXY_URL : REZKA_URL;
-    const url = `${baseUrl}${endpoint}`;
+    const url = `${getActiveMirror()}${endpoint}`;
 
     console.log('[getStreamsViaAjax] POST', url, 'id:', movieId, 'translator_id:', translationId);
 
@@ -447,7 +496,6 @@ export class RezkaService {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'X-Requested-With': 'XMLHttpRequest',
-        Referer: REZKA_URL,
       },
     });
 
@@ -508,9 +556,7 @@ export class RezkaService {
       pageUrl,
     );
 
-    const response = await axiosInstance.get(toProxyUrl(pageUrl), {
-      headers: { Referer: REZKA_URL },
-    });
+    const response = await axiosInstance.get(pageUrl);
 
     const streams = extractStreamsFromHtml(response.data);
     if (!streams) {
@@ -531,8 +577,7 @@ export class RezkaService {
     movieId: string,
     translationId: string,
   ): Promise<{ seasons: Season[]; episodes: Episode[] }> {
-    const baseUrl = Platform.OS === 'web' ? PROXY_URL : REZKA_URL;
-    const url = `${baseUrl}/ajax/get_cdn_series/`;
+    const url = `${getActiveMirror()}/ajax/get_cdn_series/`;
 
     const params = new URLSearchParams();
     params.append('id', movieId);
@@ -543,7 +588,6 @@ export class RezkaService {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'X-Requested-With': 'XMLHttpRequest',
-        Referer: REZKA_URL,
       },
     });
 
@@ -711,11 +755,9 @@ export class RezkaService {
   ): Promise<Movie[]> {
     const url =
       page === 1
-        ? `${REZKA_URL}/${basePath}/?filter=${filter}`
-        : `${REZKA_URL}/${basePath}/page/${page}/?filter=${filter}`;
-    const response = await axiosInstance.get(toProxyUrl(url), {
-      headers: { Referer: REZKA_URL },
-    });
+        ? `${getActiveMirror()}/${basePath}/?filter=${filter}`
+        : `${getActiveMirror()}/${basePath}/page/${page}/?filter=${filter}`;
+    const response = await axiosInstance.get(url);
     return parseCatalogPage(response.data);
   }
 
@@ -726,7 +768,7 @@ export class RezkaService {
     params.append('q', query);
 
     const response = await axiosInstance.post(
-      `${BASE_URL}/engine/ajax/search.php`,
+      `${getActiveMirror()}/engine/ajax/search.php`,
       params.toString(),
       {
         headers: {
@@ -780,7 +822,7 @@ export class RezkaService {
             originalTitle,
             year,
             rating: ratingText,
-            url: url.startsWith('http') ? url : `${BASE_URL}${url}`,
+            url: url.startsWith('http') ? url : `${getActiveMirror()}${url}`,
           });
         }
       }
@@ -797,7 +839,7 @@ export class RezkaService {
             movies.push({
               id: url.split('/').filter(Boolean).pop() || `movie-${movies.length}`,
               title,
-              url: url.startsWith('http') ? url : `${BASE_URL}${url}`,
+              url: url.startsWith('http') ? url : `${getActiveMirror()}${url}`,
             });
           }
         }

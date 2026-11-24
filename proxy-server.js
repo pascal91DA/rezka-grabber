@@ -6,23 +6,30 @@ const url = require('url');
 const { Buffer } = require('buffer');
 
 const PORT = 3001;
-const TARGET_HOST = 'rezka.ag';
+// Зеркала rezka; клиент выбирает хост заголовком X-Rezka-Host (см. mirrorService.ts).
+const ALLOWED_HOSTS = ['rezka.ag', 'rezka-ua.tv'];
+const DEFAULT_HOST = ALLOWED_HOSTS[0];
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // Anubis (https://github.com/TecharoHQ/anubis) выдаёт auth-cookie после проверки
 // proof-of-work. Храним её в памяти и подставляем во все запросы к rezka.
-// jar: { name: value }
-const cookieJar = {};
-let solvingPromise = null; // «замок»: одновременно решаем challenge только один раз
+// jars: { host: { name: value } } — у каждого зеркала свои cookie.
+const cookieJars = {};
+const solvingPromises = {}; // «замок» на хост: одновременно решаем challenge только один раз
 
-function jarToHeader() {
-  return Object.entries(cookieJar)
+function jarFor(host) {
+  return (cookieJars[host] ??= {});
+}
+
+function jarToHeader(host) {
+  return Object.entries(jarFor(host))
     .map(([n, v]) => `${n}=${v}`)
     .join('; ');
 }
 
-function storeSetCookies(setCookie) {
+function storeSetCookies(host, setCookie) {
+  const cookieJar = jarFor(host);
   for (const c of setCookie || []) {
     const [pair] = c.split(';');
     const idx = pair.indexOf('=');
@@ -51,24 +58,24 @@ function decompress(buf, encoding) {
  * Cookie из jar подставляется автоматически; Set-Cookie из ответа сохраняется в jar.
  * Редиректы НЕ следуются здесь — этим управляет вызывающий код.
  */
-function rezkaRequest(path, method, headers, body) {
+function rezkaRequest(host, path, method, headers, body) {
   return new Promise((resolve, reject) => {
     const options = {
-      hostname: TARGET_HOST,
+      hostname: host,
       port: 443,
       path,
       method,
       headers: {
-        host: TARGET_HOST,
-        origin: `https://${TARGET_HOST}`,
-        referer: `https://${TARGET_HOST}/`,
+        host: host,
+        origin: `https://${host}`,
+        referer: `https://${host}/`,
         'user-agent': USER_AGENT,
         'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
         'accept-encoding': 'gzip, deflate, br',
         ...headers,
       },
     };
-    const cookie = jarToHeader();
+    const cookie = jarToHeader(host);
     if (cookie) options.headers.cookie = cookie;
     if (body) options.headers['content-length'] = Buffer.byteLength(body);
 
@@ -76,7 +83,7 @@ function rezkaRequest(path, method, headers, body) {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
-        storeSetCookies(res.headers['set-cookie']);
+        storeSetCookies(host, res.headers['set-cookie']);
         const buffer = decompress(Buffer.concat(chunks), res.headers['content-encoding']);
         resolve({ status: res.statusCode, headers: res.headers, buffer });
       });
@@ -119,7 +126,7 @@ function solvePow(randomData, difficulty) {
  * дёргает pass-challenge и сохраняет выданную auth-cookie в jar.
  * verification-cookie из challenge-ответа уже лежит в jar (сохранена в rezkaRequest).
  */
-async function solveAnubis(challengeHtml) {
+async function solveAnubis(host, challengeHtml) {
   const m = challengeHtml.match(/<script id="anubis_challenge"[^>]*>(.*?)<\/script>/s);
   if (!m) throw new Error('anubis_challenge не найден на странице проверки');
   const { challenge, rules } = JSON.parse(m[1]);
@@ -133,13 +140,13 @@ async function solveAnubis(challengeHtml) {
     id: challenge.id,
     response: hash,
     nonce: String(nonce),
-    redir: `https://${TARGET_HOST}/`,
+    redir: `https://${host}/`,
     elapsedTime: String(elapsed),
   });
   const passPath = `/.within.website/x/cmd/anubis/api/pass-challenge?${qs}`;
-  const res = await rezkaRequest(passPath, 'GET', { accept: 'text/html' });
+  const res = await rezkaRequest(host, passPath, 'GET', { accept: 'text/html' });
   // rezkaRequest уже сохранил Set-Cookie (auth) в jar
-  if (!cookieJar['techaro.lol-anubis-auth']) {
+  if (!jarFor(host)['techaro.lol-anubis-auth']) {
     throw new Error(`pass-challenge не выдал auth-cookie (status ${res.status})`);
   }
   console.log('[anubis] auth-cookie получена');
@@ -149,16 +156,16 @@ async function solveAnubis(challengeHtml) {
  * Запрос к rezka с автоматическим прохождением Anubis: если пришла challenge-страница —
  * решаем PoW (под общим замком) и повторяем запрос один раз.
  */
-async function fetchWithAnubis(path, method, headers, body) {
-  let res = await rezkaRequest(path, method, headers, body);
+async function fetchWithAnubis(host, path, method, headers, body) {
+  let res = await rezkaRequest(host, path, method, headers, body);
   if (isAnubisChallenge(res)) {
-    if (!solvingPromise) {
-      solvingPromise = solveAnubis(res.buffer.toString('utf8')).finally(() => {
-        solvingPromise = null;
+    if (!solvingPromises[host]) {
+      solvingPromises[host] = solveAnubis(host, res.buffer.toString('utf8')).finally(() => {
+        delete solvingPromises[host];
       });
     }
-    await solvingPromise;
-    res = await rezkaRequest(path, method, headers, body);
+    await solvingPromises[host];
+    res = await rezkaRequest(host, path, method, headers, body);
   }
   return res;
 }
@@ -166,7 +173,7 @@ async function fetchWithAnubis(path, method, headers, body) {
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Requested-With, X-Rezka-Host');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -176,6 +183,8 @@ const server = http.createServer((req, res) => {
 
   const parsedUrl = url.parse(req.url, true);
   const targetPath = parsedUrl.path.replace('/proxy', '');
+  const requestedHost = req.headers['x-rezka-host'];
+  const host = ALLOWED_HOSTS.includes(requestedHost) ? requestedHost : DEFAULT_HOST;
 
   const forwardHeaders = {
     accept: req.headers.accept || '*/*',
@@ -187,7 +196,13 @@ const server = http.createServer((req, res) => {
   req.on('data', (chunk) => (body += chunk));
   req.on('end', async () => {
     try {
-      const result = await fetchWithAnubis(targetPath, req.method, forwardHeaders, body || null);
+      const result = await fetchWithAnubis(
+        host,
+        targetPath,
+        req.method,
+        forwardHeaders,
+        body || null,
+      );
 
       const headers = { ...result.headers };
       // Тело уже распаковано — убираем заголовки исходной кодировки/длины.
@@ -199,7 +214,7 @@ const server = http.createServer((req, res) => {
       delete headers['x-frame-options'];
       headers['access-control-allow-origin'] = '*';
       headers['access-control-allow-methods'] = 'GET, POST, OPTIONS';
-      headers['access-control-allow-headers'] = 'Content-Type, X-Requested-With';
+      headers['access-control-allow-headers'] = 'Content-Type, X-Requested-With, X-Rezka-Host';
 
       res.writeHead(result.status, headers);
       res.end(result.buffer);
