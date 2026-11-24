@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useSyncExternalStore } from 'react';
 import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,8 +8,21 @@ import { RootStackParamList } from '../types/navigation';
 import { useTimer, formatTime, TIMER_PRESETS } from '../context/TimerContext';
 import { ACCENT_PRESETS, useTheme } from '../context/ThemeContext';
 import { contrastText } from '../utils/color';
+import {
+  MIRRORS,
+  getActiveMirror,
+  getMirrorSetting,
+  mirrorHost,
+  setMirrorSetting,
+  subscribeMirror,
+} from '../services/mirrorService';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
+
+const MIRROR_OPTIONS = [
+  { value: 'auto', label: 'Авто', hint: 'При недоступности переключаться на другое зеркало' },
+  ...MIRRORS.map((m) => ({ value: m.url, label: m.label, hint: m.url })),
+];
 
 const NAV_ROWS = [
   {
@@ -28,6 +41,8 @@ export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<NavProp>();
   const { timeLeft, setTimer, cancelTimer } = useTimer();
   const theme = useTheme();
+  const mirrorSetting = useSyncExternalStore(subscribeMirror, getMirrorSetting);
+  const activeMirror = useSyncExternalStore(subscribeMirror, getActiveMirror);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -67,6 +82,44 @@ export const SettingsScreen: React.FC = () => {
               );
             })}
           </View>
+        </View>
+
+        {/* Зеркало */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Зеркало</Text>
+          <Text style={styles.sectionHint}>
+            Сайт, с которого загружаются поиск, новинки и видео. Сейчас используется{' '}
+            {mirrorHost(activeMirror)}.
+          </Text>
+          {MIRROR_OPTIONS.map((option) => {
+            const selected = option.value === mirrorSetting;
+            return (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.mirrorOption,
+                  selected && {
+                    borderColor: theme.accentBorder,
+                    backgroundColor: theme.accentSoft,
+                  },
+                ]}
+                onPress={() => setMirrorSetting(option.value)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={selected ? 'radio-button-on' : 'radio-button-off'}
+                  size={20}
+                  color={selected ? theme.accent : '#666'}
+                />
+                <View style={styles.rowText}>
+                  <Text style={styles.rowLabel}>{option.label}</Text>
+                  <Text style={styles.rowHint}>{option.hint}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* Таймер сна */}
@@ -146,6 +199,18 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   swatchSelected: { borderColor: '#fff' },
+  mirrorOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#3a3a3a',
+    backgroundColor: '#222',
+  },
   section: {
     paddingHorizontal: 16,
     paddingVertical: 16,

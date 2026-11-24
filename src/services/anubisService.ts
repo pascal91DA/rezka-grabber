@@ -12,7 +12,6 @@ import { sha256Bytes } from '../utils/sha256';
  * прокидывать Cookie не нужно: выданная cookie сама подставится в следующие запросы.
  */
 
-const REZKA_URL = 'https://rezka.ag';
 const PASS_CHALLENGE_PATH = '/.within.website/x/cmd/anubis/api/pass-challenge';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -21,8 +20,8 @@ const USER_AGENT =
 // не рекурсивно не попадал снова в обработчик challenge.
 const rawAxios = axios.create({ headers: { 'User-Agent': USER_AGENT }, timeout: 30000 });
 
-// Одновременно решаем challenge только один раз: параллельные запросы ждут общий промис.
-let solving: Promise<void> | null = null;
+// Одновременно решаем challenge только один раз на зеркало: параллельные запросы ждут общий промис.
+const solving = new Map<string, Promise<void>>();
 
 /** Похоже ли тело ответа на challenge-страницу Anubis. */
 export function isAnubisChallenge(data: unknown): data is string {
@@ -57,7 +56,7 @@ function solvePow(randomData: string, difficulty: number): { hash: string; nonce
   }
 }
 
-async function doSolve(challengeHtml: string): Promise<void> {
+async function doSolve(challengeHtml: string, origin: string): Promise<void> {
   const m = challengeHtml.match(/<script id="anubis_challenge"[^>]*>([\s\S]*?)<\/script>/);
   if (!m) throw new Error('anubis_challenge не найден на странице проверки');
 
@@ -77,12 +76,12 @@ async function doSolve(challengeHtml: string): Promise<void> {
     id: challenge.id,
     response: hash,
     nonce: String(nonce),
-    redir: `${REZKA_URL}/`,
+    redir: `${origin}/`,
     elapsedTime: String(elapsed),
   });
 
   // Ответ 302 + Set-Cookie(auth); нативный cookie-jar сохранит cookie автоматически.
-  await rawAxios.get(`${REZKA_URL}${PASS_CHALLENGE_PATH}?${params.toString()}`, {
+  await rawAxios.get(`${origin}${PASS_CHALLENGE_PATH}?${params.toString()}`, {
     headers: { Accept: 'text/html' },
   });
   console.log('[anubis] challenge passed, auth-cookie сохранена сетевым слоем');
@@ -91,12 +90,15 @@ async function doSolve(challengeHtml: string): Promise<void> {
 /**
  * Проходит Anubis-проверку по её challenge-странице. Потокобезопасно: при
  * параллельных вызовах реально решает PoW один раз, остальные ждут тот же промис.
+ * `origin` — зеркало, выдавшее challenge (например https://rezka.ag).
  */
-export function solveAnubisChallenge(challengeHtml: string): Promise<void> {
-  if (!solving) {
-    solving = doSolve(challengeHtml).finally(() => {
-      solving = null;
+export function solveAnubisChallenge(challengeHtml: string, origin: string): Promise<void> {
+  let promise = solving.get(origin);
+  if (!promise) {
+    promise = doSolve(challengeHtml, origin).finally(() => {
+      solving.delete(origin);
     });
+    solving.set(origin, promise);
   }
-  return solving;
+  return promise;
 }

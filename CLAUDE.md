@@ -17,6 +17,8 @@ Android-focused React Native app (bare Expo workflow — `android/` is committed
 - `npm run android` — `expo run:android`: build debug, install, and run on a connected device/emulator
 - `npm test` / `npm run test:watch` / `npm run test:coverage` — Jest (preset `jest-expo`)
 - Single test: `npm test -- -t 'partial test name'`
+- `npm run lint` / `npm run lint:fix` — ESLint (flat config, `eslint-config-expo` + Prettier as a lint rule)
+- `npm run format` — Prettier over the repo
 - `npm run proxy` — Node proxy on port 3001 for rezka.ag requests (CORS/redirect handling); only needed for web
 - `npm run web:dev` — proxy + web bundler together (web dev only)
 
@@ -36,9 +38,9 @@ Output: `android/app/build/outputs/apk/release/app-release.apk`. Release current
 
 - **rezka.ag scraping is fragile.** `src/services/rezkaService.ts` and `src/utils/streamParser.ts` parse the site's HTML; site changes silently break search/playback. When something stops working, check the parsers against current page markup before assuming a code bug.
 - Clear-text HTTP is enabled (`usesCleartextTraffic: true`) because rezka.ag serves over HTTP.
-- No ESLint/Prettier config — match the style of surrounding code.
+- Style is enforced by ESLint + Prettier (`eslint.config.js`, `.prettierrc`: single quotes, trailing commas, 100-col, 2-space, semicolons). Prettier violations surface as ESLint errors. `android/`, `dist/`, `coverage/` are ignored.
 - Mixed JS/TS: `App.js`/`index.js` are JS with JSDoc; everything under `src/` is strict TypeScript.
 
 ## Layout
 
-`src/screens/` (one file per screen) · `src/services/` (rezka, downloads, hls, history, watched, blacklist) · `src/components/` · `src/context/` (TimerContext) · `src/types/` · `src/utils/` (streamParser, vttParser).
+`src/screens/` (one file per screen) · `src/services/` (rezka, anubis, downloads, hls, history, watched, blacklist) · `src/components/` · `src/context/` (TimerContext, ThemeContext) · `src/types/` · `src/constants/` · `src/utils/` (streamParser, vttParser, sha256, color).

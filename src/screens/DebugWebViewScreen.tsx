@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 import * as Clipboard from 'expo-clipboard';
 import { Movie } from '../types/Movie';
 import { useTheme } from '../context/ThemeContext';
+import { toMirror } from '../services/mirrorService';
 
 interface DebugWebViewScreenProps {
   route: {
@@ -141,7 +142,7 @@ export const DebugWebViewScreen: React.FC<DebugWebViewScreenProps> = ({ route })
       <View style={[styles.webViewContainer, { borderBottomColor: theme.accentStrong }]}>
         <WebView
           ref={webViewRef}
-          source={{ uri: movie.url }}
+          source={{ uri: toMirror(movie.url) }}
           injectedJavaScript={injectedJavaScript}
           onMessage={handleWebViewMessage}
           javaScriptEnabled={true}

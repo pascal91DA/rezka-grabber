@@ -15,11 +15,15 @@ import { WatchedScreen } from './src/screens/WatchedScreen';
 import { PlayerScreen } from './src/screens/PlayerScreen';
 import { OfflinePlayerScreen } from './src/screens/OfflinePlayerScreen';
 import { DebugWebViewScreen } from './src/screens/DebugWebViewScreen';
+import { loadMirrorSetting } from './src/services/mirrorService';
 
 /**
  * @typedef {import('./src/types/navigation').RootStackParamList} RootStackParamList
  * @typedef {import('./src/types/navigation').MainTabParamList} MainTabParamList
  */
+
+// Выбранное зеркало нужно до первых запросов к rezka — читаем его сразу при старте.
+loadMirrorSetting();
 
 /** @type {import('@react-navigation/bottom-tabs').createBottomTabNavigator<MainTabParamList>} */
 const Tab = createBottomTabNavigator();
