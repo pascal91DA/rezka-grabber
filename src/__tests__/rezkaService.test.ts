@@ -1,4 +1,9 @@
-import { extractStreamsFromHtml, parseTranslatorSlugs } from '../services/rezkaService';
+import {
+  extractStreamsFromHtml,
+  parseTranslatorSlugs,
+  parseTranslatorsList,
+  parseTranslatorStats,
+} from '../services/rezkaService';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -156,5 +161,68 @@ describe('Интеграция: извлечение и парсинг пото�
     expect(info.streams).toHaveLength(2);
     expect(info.selectedStream?.quality).toBe('1080p');
     expect(info.selectedStream?.url).toBe('https://cdn.example.com/1080.mp4');
+  });
+});
+
+// ─── parseTranslatorsList ─────────────────────────────────────────────────
+
+describe('parseTranslatorsList', () => {
+  // Фрагмент реальной разметки фильма: список выводится дважды (скрытый b-translator__items
+  // со случайным префиксом в href и видимый b-translator__item с "{id}-{slug}.html").
+  const base = 'https://hdrezka-home.tv/films/thriller/90250-serdce-zverya-2026-latest';
+  const LIST = `
+<li style="float: left;"><a title="HDrezka Studio" class="b-translator__items b-prem_translator" data-id="90250" data-translator_id="111" data-camrip="0" data-ads="0" data-director="0" data-cdn_quality="" href="${base}/mibzelxa-hdrezka-studio.html">HDrezka Studio</a></li>
+<li style="float: left;"><a title="Дубляж (официальный)" class="b-translator__items" data-id="90250" data-translator_id="56" data-camrip="1" data-ads="0" data-director="0" data-cdn_quality="" href="${base}/mhxivesb-dublyazh.html">Дубляж (официальный)</a></li>
+<li style="float: left;"><a title="Украинский дубляж " class="b-translator__items" data-id="90250" data-translator_id="358" data-camrip="0" data-ads="0" data-director="0" href="${base}/miwtrtpn-ukrainskiy-dublyazh.html">Украинский дубляж <img src="ua.png" /></a></li>
+<li style="float: left;"><a title="HDrezka Studio" class="b-translator__item b-prem_translator active" data-id="90250" data-translator_id="111" data-camrip="0" data-ads="0" data-director="0" data-cdn_quality="" href="${base}/111-hdrezka-studio.html">HDrezka Studio</a></li>
+<li style="float: left;"><a title="Дубляж (официальный)" class="b-translator__item" data-id="90250" data-translator_id="56" data-camrip="1" data-ads="0" data-director="0" data-cdn_quality="" href="${base}/56-dublyazh.html">Дубляж (официальный)</a></li>
+<li style="float: left;"><a title="Украинский дубляж " class="b-translator__item" data-id="90250" data-translator_id="358" data-camrip="0" data-ads="0" data-director="0" href="${base}/358-ukrainskiy-dublyazh.html">Украинский дубляж <img src="ua.png" /></a></li>`;
+
+  it('дедуплицирует, помечает премиум и берёт slug вида {id}-...', () => {
+    const list = parseTranslatorsList(LIST);
+    expect(list.map((t) => t.id)).toEqual(['111', '56', '358']);
+    expect(list[0]).toMatchObject({ title: 'HDrezka Studio', premium: true, slug: '111-hdrezka-studio' });
+    expect(list[1]).toMatchObject({ premium: false, slug: '56-dublyazh' });
+    expect(list[1].flags).toEqual({ camrip: '1', ads: '0', director: '0' });
+    expect(list[2]).toMatchObject({ title: 'Украинский дубляж', slug: '358-ukrainskiy-dublyazh' });
+  });
+
+  it('поддерживает старую разметку <li> без href', () => {
+    const list = parseTranslatorsList(
+      '<li data-translator_id="56" title="Дублированный" class="b-translator__item active">Дублированный</li>',
+    );
+    expect(list).toEqual([
+      { id: '56', title: 'Дублированный', slug: undefined, premium: false, flags: { camrip: '0', ads: '0', director: '0' } },
+    ]);
+  });
+});
+
+// ─── parseTranslatorStats ─────────────────────────────────────────────────
+
+describe('parseTranslatorStats', () => {
+  // Фрагмент реальной разметки «Не можешь выбрать озвучку?» (Игра престолов).
+  const HTML = `<div class="b-translators__title">В русской озвучке от: <span class="b-rgstats__help hd-tooltip-custom" data-attrs='{"animation":"fade","position":"top-right"}' title="&lt;div class='b-rgstats__title'&gt;Популярность озвучек для данного сериала&lt;/div&gt;&lt;ul class=&quot;b-rgstats__list&quot;&gt;&lt;li class=&quot;b-rgstats__list_item&quot;&gt;&lt;div class=&quot;inner&quot;&gt;&lt;div class=&quot;title&quot;&gt;HDrezka Studio&lt;/div&gt;&lt;div class=&quot;bar&quot; style=&quot;width: 39%;&quot;&gt;&lt;/div&gt;&lt;div class=&quot;count&quot;&gt;39,73%&lt;/div&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li class=&quot;b-rgstats__list_item&quot;&gt;&lt;div class=&quot;inner&quot;&gt;&lt;div class=&quot;title&quot;&gt;Украинский &lt;img title=&quot;Украинский&quot; src=&quot;https://static.test/ua.png&quot; /&gt;&lt;/div&gt;&lt;div class=&quot;bar&quot; style=&quot;width: 3%;&quot;&gt;&lt;/div&gt;&lt;div class=&quot;count&quot;&gt;3,51%&lt;/div&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li class=&quot;b-rgstats__list_item&quot;&gt;&lt;div class=&quot;inner&quot;&gt;&lt;div class=&quot;title&quot;&gt;Дубляж&lt;/div&gt;&lt;div class=&quot;bar&quot; style=&quot;width: 33%;&quot;&gt;&lt;/div&gt;&lt;div class=&quot;count&quot;&gt;33,54%&lt;/div&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li class=&quot;b-rgstats__list_item&quot;&gt;&lt;div class=&quot;inner&quot;&gt;&lt;div class=&quot;title&quot;&gt;Неизвестная&lt;/div&gt;&lt;div class=&quot;bar&quot;&gt;&lt;/div&gt;&lt;div class=&quot;count&quot;&gt;0,55%&lt;/div&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;/ul&gt;&lt;div class='b-rgstats__info'&gt;Популярность формируется на основе <b><u>текущих</u></b> предпочтений.&lt;/div&gt;">Не можешь выбрать озвучку?</span></div>`;
+
+  const translations = [
+    { id: '111', title: 'HDrezka Studio' },
+    { id: '56', title: 'Дубляж' },
+    { id: '99', title: 'Украинский' },
+  ];
+
+  it('разбирает проценты, сортирует и сопоставляет с переводами', () => {
+    expect(parseTranslatorStats(HTML, translations)).toEqual([
+      { title: 'HDrezka Studio', percent: 39.73, translationId: '111' },
+      { title: 'Дубляж', percent: 33.54, translationId: '56' },
+      { title: 'Украинский', percent: 3.51, translationId: '99' },
+      { title: 'Неизвестная', percent: 0.55, translationId: undefined },
+    ]);
+  });
+
+  it('возвращает undefined, если блока нет', () => {
+    expect(parseTranslatorStats('<div>нет статистики</div>')).toBeUndefined();
   });
 });

@@ -128,3 +128,22 @@ describe('applyUrlFixes', () => {
     expect(applyUrlFixes('')).toBe('');
   });
 });
+
+describe('parseStreamInfo — премиум-качества', () => {
+  const RAW =
+    '[720p]https://cdn.test/a.mp4:hls:manifest.m3u8,[1080p]https://cdn.test/b.mp4:hls:manifest.m3u8,' +
+    '[<span class="pjs-prem-quality">1080p Ultra<img src="https://static.test/prem-icon.svg" alt=""></span>]https://cdn.test/c.mp4:hls:manifest.m3u8';
+
+  it('не выбирает премиум-качество и не оставляет HTML в метках', () => {
+    const info = parseStreamInfo(RAW);
+    expect(info.streams.map((s) => s.quality)).toEqual(['720p', '1080p']);
+    expect(info.selectedStream?.quality).toBe('1080p');
+  });
+
+  it('использует премиум-качества, если других нет', () => {
+    const info = parseStreamInfo(
+      '[<span class="pjs-prem-quality">4K<img src="https://static.test/i.svg" alt=""></span>]https://cdn.test/d.mp4',
+    );
+    expect(info.streams).toEqual([{ quality: '4K', url: 'https://cdn.test/d.mp4' }]);
+  });
+});
